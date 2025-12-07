@@ -44,6 +44,10 @@ export class TabInputWebview {
 	constructor(public viewType: string) {}
 }
 
+export class TabInputText {
+	constructor(public uri: any) {}
+}
+
 export const Uri = {
 	file: (path: string) =>
 		({
@@ -73,7 +77,7 @@ export const resetMocks = () => {
 
 export const setConfigValues = (values: Record<string, unknown>) => {
 	workspace.getConfiguration.mockReturnValue({
-		get: (key: string) => values[key],
+		get: (key: string): unknown => (Object.prototype.hasOwnProperty.call(values, key) ? values[key] : undefined),
 	});
 };
 

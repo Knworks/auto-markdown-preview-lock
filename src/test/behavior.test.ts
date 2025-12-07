@@ -1,8 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('vscode', async () => await import('./vscodeMock'));
-import { __handleActiveEditorChangeForTest, __setAdjustingFocusForTest } from '../extension';
-import { resetMocks, setConfigValues, __mocks, ViewColumn, TabInputWebview, Uri } from './vscodeMock';
-import { resetAllState, setPreviewLocked, setCurrentPreviewUri, getPreviewState } from '../state';
+import {
+	__handleActiveEditorChangeForTest,
+	__handleDocumentCloseForTest,
+	__setAdjustingFocusForTest,
+} from '../extension';
+import { resetMocks, setConfigValues, __mocks, ViewColumn, TabInputWebview, TabInputText, Uri } from './vscodeMock';
+import {
+	resetAllState,
+	setPreviewLocked,
+	setCurrentPreviewUri,
+	getPreviewState,
+	setLastActiveColumn,
+	setLastActiveKind,
+	setLastNonMarkdownPlacement,
+} from '../state';
 
 const createTextEditor = (uriPath: string, languageId: string, viewColumn = ViewColumn.One) =>
 	({
@@ -278,6 +290,141 @@ describe('handleActiveEditorChange', () => {
 		const nonMd = createTextEditor('/j.ts', 'typescript', ViewColumn.One);
 		await __handleActiveEditorChangeForTest(nonMd);
 		expect(__mocks.window.showTextDocument).toHaveBeenCalled();
+	});
+
+	it('allows user-driven non-markdown split to stay on the right when preview group is not targeted', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: true,
+			alwaysOpenInPrimaryEditor: true,
+		});
+		// No preview tab; user intentionally opened non-markdown on column two.
+		// Mark previous active column as primary to simulate explicit split.
+		resetAllState();
+		setLastActiveColumn(ViewColumn.One);
+		setLastNonMarkdownPlacement(Uri.file('/user.ts'), ViewColumn.One);
+		const nonMd = createTextEditor('/user.ts', 'typescript', ViewColumn.Two);
+		await __handleActiveEditorChangeForTest(nonMd);
+		// Should not move back to first group (no move command).
+		const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+		expect(executed).not.toContain('workbench.action.moveEditorToFirstGroup');
+	});
+
+	it('reuses existing right-side non-markdown tab instead of opening a new left tab', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: true,
+			alwaysOpenInPrimaryEditor: true,
+		});
+	const nonMdRight = createTextEditor('/existing.ts', 'typescript', ViewColumn.Two);
+	__mocks.tabGroups.all = [
+		{
+			tabs: [{ input: new TabInputText(Uri.file('/existing.ts')) }],
+			viewColumn: ViewColumn.Two,
+		},
+	] as any;
+		// Mark as previously split to right.
+		setLastNonMarkdownPlacement(Uri.file('/existing.ts'), ViewColumn.Two);
+		setLastActiveColumn(ViewColumn.One);
+		setLastActiveKind('non-markdown');
+
+		await __handleActiveEditorChangeForTest(nonMdRight);
+
+		const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+		expect(executed).not.toContain('workbench.action.moveEditorToFirstGroup');
+	});
+
+	it('keeps explicit split when returning focus to right-side tab of the same document', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: true,
+			alwaysOpenInPrimaryEditor: true,
+		});
+		const uri = Uri.file('/split.ts');
+		// Prime state to mark user split for this document.
+		resetAllState();
+		setLastActiveKind('non-markdown');
+		setLastActiveColumn(ViewColumn.One);
+		setLastNonMarkdownPlacement(uri, ViewColumn.One);
+		const splitEditor = createTextEditor('/split.ts', 'typescript', ViewColumn.Two);
+		await __handleActiveEditorChangeForTest(splitEditor);
+
+		// Left and right tabs exist; focus moves to another file on the left.
+		__mocks.tabGroups.all = [
+			{
+				tabs: [{ input: new TabInputText(uri) }],
+				viewColumn: ViewColumn.One,
+			},
+			{
+				tabs: [{ input: new TabInputText(uri) }],
+				viewColumn: ViewColumn.Two,
+			},
+		] as any;
+		const other = createTextEditor('/other.ts', 'typescript', ViewColumn.One);
+		await __handleActiveEditorChangeForTest(other);
+
+		// Return focus to the right-side tab; should not be moved back left.
+		__mocks.commands.executeCommand.mockClear();
+		const backToRight = createTextEditor('/split.ts', 'typescript', ViewColumn.Two);
+		await __handleActiveEditorChangeForTest(backToRight);
+		const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+		expect(executed).not.toContain('workbench.action.moveEditorToFirstGroup');
+
+		// Activate the left tab (e.g., after attempting to close right). Should allow staying on left without reopening right.
+		__mocks.commands.executeCommand.mockClear();
+		const backToLeft = createTextEditor('/split.ts', 'typescript', ViewColumn.One);
+		await __handleActiveEditorChangeForTest(backToLeft);
+		const executedLeft = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+		expect(executedLeft).not.toContain('workbench.action.focusSecondEditorGroup');
+	});
+
+	it('forgets right split tracking after the document is closed', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: true,
+			alwaysOpenInPrimaryEditor: true,
+		});
+		// Mark prior activity so the first right-side open is treated as a user split.
+		setLastActiveKind('non-markdown');
+		setLastActiveColumn(ViewColumn.One);
+		setLastNonMarkdownPlacement(Uri.file('/forget.ts'), ViewColumn.One);
+		const rightNonMd = createTextEditor('/forget.ts', 'typescript', ViewColumn.Two);
+		await __handleActiveEditorChangeForTest(rightNonMd);
+
+		// Close the document to clear user split tracking.
+		__mocks.commands.executeCommand.mockClear();
+		__handleDocumentCloseForTest(rightNonMd.document as any);
+
+		// Next open from explorer on the right should be moved to primary because split memory was cleared.
+		setLastActiveKind('markdown');
+		setLastActiveColumn(ViewColumn.One);
+		const reopened = createTextEditor('/forget.ts', 'typescript', ViewColumn.Two);
+		await __handleActiveEditorChangeForTest(reopened);
+
+		const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+		expect(executed).toContain('workbench.action.moveEditorToFirstGroup');
+	});
+
+	it('resets split allowance after returning to markdown so explorer opens non-markdown on the left', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: true,
+			alwaysOpenInPrimaryEditor: true,
+		});
+		// Simulate prior non-markdown activity on left.
+		setLastNonMarkdownPlacement(Uri.file('/old.ts'), ViewColumn.One);
+		setLastActiveColumn(ViewColumn.One);
+		setLastActiveKind('non-markdown');
+
+		// Open markdown to reset last active column.
+		const md = createTextEditor('/reset.md', 'markdown', ViewColumn.One);
+		await __handleActiveEditorChangeForTest(md);
+
+		// Explorer-like open of non-markdown on the right should move back to primary.
+		const nonMd = createTextEditor('/explorer.ts', 'typescript', ViewColumn.Two);
+		await __handleActiveEditorChangeForTest(nonMd);
+		const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+		expect(executed).toContain('workbench.action.moveEditorToFirstGroup');
 	});
 
 	it('halts behavior when workspace is untrusted', async () => {

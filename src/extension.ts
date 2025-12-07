@@ -8,6 +8,8 @@ import {
 	resetPreviewState,
 	setCurrentPreviewUri,
 	setLastActiveKind,
+	setLastActiveColumn,
+	setLastNonMarkdownPlacement,
 	setPreviewLocked,
 } from './state';
 
@@ -17,9 +19,15 @@ let isAdjustingFocus = false;
 let trustWarningShown = false;
 let lastHandledKey: string | undefined;
 let lastHandledAt = 0;
+const userSplitNonMarkdownKeys = new Set<string>();
+
+const isPrimaryColumn = (column: vscode.ViewColumn | undefined): boolean =>
+	column === vscode.ViewColumn.One || column === undefined;
 
 const logWarn = (...args: unknown[]) => console.warn('[auto-markdown-preview-lock]', ...args);
 const logError = (...args: unknown[]) => console.error('[auto-markdown-preview-lock]', ...args);
+
+const uriKey = (uri: vscode.Uri | undefined): string | undefined => uri?.toString();
 
 const executeCommandSafely = async (command: string, args: unknown[] = [], timeoutMs = COMMAND_TIMEOUT_MS) => {
 	let timeout: NodeJS.Timeout | undefined;
@@ -38,6 +46,23 @@ const executeCommandSafely = async (command: string, args: unknown[] = [], timeo
 			clearTimeout(timeout);
 		}
 	}
+};
+
+const handleDocumentClose = (document: vscode.TextDocument): void => {
+	const key = uriKey(document.uri);
+	if (key) {
+		userSplitNonMarkdownKeys.delete(key);
+	}
+
+	const state = getPreviewState();
+	if (state.lastNonMarkdownUri?.toString() === document.uri.toString()) {
+		setLastNonMarkdownPlacement(undefined, undefined);
+	}
+
+	setLastActiveKind('markdown');
+	setLastActiveColumn(undefined);
+	lastHandledKey = undefined;
+	lastHandledAt = 0;
 };
 
 const isWorkspaceTrusted = async (): Promise<boolean> => {
@@ -168,7 +193,7 @@ const unlockPreviewGroupIfNeeded = async (state: PreviewState, fallbackEditor: v
 	}
 };
 
-const isMarkdownEditor = (editor: vscode.TextEditor | undefined): editor is vscode.TextEditor => {
+const isMarkdownEditor = (editor: vscode.TextEditor | undefined): boolean => {
 	return !!editor && editor.document.languageId === MARKDOWN_LANGUAGE_ID;
 };
 
@@ -189,6 +214,24 @@ const findMarkdownPreviewTab = (): { tab: vscode.Tab; group: vscode.TabGroup } |
 		}
 	}
 	return undefined;
+};
+
+const findTabByUri = (uri: vscode.Uri): { tab: vscode.Tab; group: vscode.TabGroup } | undefined => {
+	const target = uri.toString();
+	let fallback: { tab: vscode.Tab; group: vscode.TabGroup } | undefined;
+	for (const group of vscode.window.tabGroups.all) {
+		for (const tab of group.tabs) {
+			const input = tab.input;
+			if (input instanceof vscode.TabInputText && input.uri.toString() === target) {
+				// Prefer non-primary (right) groups when multiple matches exist.
+				if (group.viewColumn && group.viewColumn !== vscode.ViewColumn.One) {
+					return { tab, group };
+				}
+				fallback = { tab, group };
+			}
+		}
+	}
+	return fallback;
 };
 
 const closeMarkdownPreviewIfExists = async (): Promise<void> => {
@@ -213,8 +256,31 @@ const closeMarkdownPreviewIfExists = async (): Promise<void> => {
 const ensureEditorInPrimaryColumn = async (
 	editor: vscode.TextEditor,
 	forcePrimary: boolean,
+	options?: {
+		previewGroupViewColumn?: vscode.ViewColumn;
+		allowUserSplit?: boolean;
+		lastActiveColumn?: vscode.ViewColumn;
+	},
 ): Promise<vscode.TextEditor> => {
-	if (!forcePrimary || editor.viewColumn === vscode.ViewColumn.One) {
+	if (!forcePrimary) {
+		return editor;
+	}
+
+	const previewGroupViewColumn = options?.previewGroupViewColumn;
+	const allowUserSplit = options?.allowUserSplit ?? false;
+	const lastActiveColumn = options?.lastActiveColumn;
+
+	// Respect explicit user-driven splits when they target non-primary columns and do not collide with the preview group.
+	if (
+		allowUserSplit &&
+		lastActiveColumn === vscode.ViewColumn.One &&
+		editor.viewColumn !== vscode.ViewColumn.One &&
+		(previewGroupViewColumn === undefined || editor.viewColumn !== previewGroupViewColumn)
+	) {
+		return editor;
+	}
+
+	if (editor.viewColumn === vscode.ViewColumn.One) {
 		return editor;
 	}
 	isAdjustingFocus = true;
@@ -252,21 +318,72 @@ const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): 
 		return;
 	}
 
-	if (!isMarkdownEditor(editor)) {
+	const activeEditor = editor as vscode.TextEditor;
+	const activeColumn = activeEditor.viewColumn;
+	let currentEditor = activeEditor;
+
+	if (!isMarkdownEditor(activeEditor)) {
+		const previousState = getPreviewState();
 		setLastActiveKind('non-markdown');
 		if (settings.closePreviewOnNonMarkdown) {
 			const state = getPreviewState();
-			await unlockPreviewGroupIfNeeded(state, editor);
-			await closeMarkdownPreviewIfExists();
-		}
-		// Move non-Markdown back to primary column to avoid opening on the right preview side.
-		await ensureEditorInPrimaryColumn(editor, settings.alwaysOpenInPrimaryEditor);
+		await unlockPreviewGroupIfNeeded(state, activeEditor);
+		await closeMarkdownPreviewIfExists();
+	}
+	const currentKey = uriKey(activeEditor.document.uri);
+	const isUserSplit =
+		previousState.lastActiveKind === 'non-markdown' &&
+		previousState.lastActiveColumn === vscode.ViewColumn.One &&
+		!isPrimaryColumn(activeColumn) &&
+		previousState.lastNonMarkdownUri?.toString() === activeEditor.document.uri.toString();
+
+	if (isUserSplit && currentKey) {
+		userSplitNonMarkdownKeys.add(currentKey);
+	}
+
+	const existingTab = currentKey ? findTabByUri(activeEditor.document.uri) : undefined;
+	const isKnownUserSplit = currentKey ? userSplitNonMarkdownKeys.has(currentKey) : false;
+	const groupViewColumn = existingTab?.group.viewColumn as vscode.ViewColumn | undefined;
+	const hasRightTab = groupViewColumn !== undefined && groupViewColumn !== vscode.ViewColumn.One;
+	const shouldStickToRight =
+		!isPrimaryColumn(activeColumn) &&
+		(isUserSplit || (isKnownUserSplit && hasRightTab));
+
+	const shouldReuseExistingRight =
+		existingTab &&
+		hasRightTab &&
+		shouldStickToRight &&
+		!isPrimaryColumn(activeColumn);
+
+	if (shouldReuseExistingRight && groupViewColumn) {
+		await vscode.window.showTextDocument(activeEditor.document, {
+			viewColumn: groupViewColumn,
+			preserveFocus: false,
+			preview: false,
+		});
+		setLastActiveColumn(groupViewColumn);
+		setLastNonMarkdownPlacement(activeEditor.document.uri, groupViewColumn);
 		return;
+	}
+
+	// Move non-Markdown back to primary column to avoid opening on the right preview side.
+	if (!shouldStickToRight) {
+		currentEditor = await ensureEditorInPrimaryColumn(activeEditor, settings.alwaysOpenInPrimaryEditor, {
+			previewGroupViewColumn: findMarkdownPreviewTab()?.group.viewColumn,
+			allowUserSplit: shouldStickToRight,
+			lastActiveColumn: previousState.lastActiveColumn,
+		});
+	}
+	setLastActiveColumn(currentEditor.viewColumn);
+	setLastNonMarkdownPlacement(currentEditor.document.uri, currentEditor.viewColumn);
+	return;
 	}
 
 	if (!settings.enableAutoPreview) {
 		setLastActiveKind('markdown');
-		await ensureEditorInPrimaryColumn(editor, settings.alwaysOpenInPrimaryEditor);
+		setLastNonMarkdownPlacement(undefined, undefined);
+		setLastActiveColumn(undefined);
+		await ensureEditorInPrimaryColumn(activeEditor, settings.alwaysOpenInPrimaryEditor);
 		return;
 	}
 
@@ -276,8 +393,15 @@ const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): 
 	}
 
 	// Keep Markdown editing on the primary (left) column to prevent cascading groups on the right.
-	const primaryEditor = await ensureEditorInPrimaryColumn(editor, settings.alwaysOpenInPrimaryEditor);
+	const previewTab = findMarkdownPreviewTab();
+	const primaryEditor = await ensureEditorInPrimaryColumn(activeEditor, settings.alwaysOpenInPrimaryEditor, {
+		previewGroupViewColumn: previewTab?.group.viewColumn,
+		allowUserSplit: false,
+		lastActiveColumn: getPreviewState().lastActiveColumn,
+	});
 	setLastActiveKind('markdown');
+	setLastNonMarkdownPlacement(undefined, undefined);
+	setLastActiveColumn(primaryEditor.viewColumn);
 
 	// Skip reopening if we are already previewing the same document and the tab is present.
 	const state = getPreviewState();
@@ -299,6 +423,9 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.window.onDidChangeActiveTextEditor((editor) => {
 			void handleActiveEditorChange(editor);
 		}),
+		vscode.workspace.onDidCloseTextDocument((document) => {
+			handleDocumentClose(document);
+		}),
 	);
 
 	// Handle already active editor when the extension activates.
@@ -309,6 +436,7 @@ export function deactivate() {}
 
 // Export for unit tests.
 export const __handleActiveEditorChangeForTest = handleActiveEditorChange;
+export const __handleDocumentCloseForTest = handleDocumentClose;
 export const __setAdjustingFocusForTest = (value: boolean) => {
 	isAdjustingFocus = value;
 };
