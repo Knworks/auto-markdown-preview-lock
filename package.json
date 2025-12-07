@@ -17,7 +17,33 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
-    "commands": []
+    "commands": [],
+    "configuration": {
+      "title": "Auto Markdown Preview Lock",
+      "properties": {
+        "autoMdPreview.enableAutoPreview": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Automatically open markdown preview when a markdown file becomes active.",
+          "order": 1
+        },
+        "autoMdPreview.alwaysOpenInPrimaryEditor": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Always keep the active text editor in the primary (first) group when opening previews.",
+          "order": 2
+        },
+        "autoMdPreview.closePreviewOnNonMarkdown": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Automatically close markdown preview when a non-markdown editor becomes active.",
+          "order": 3
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

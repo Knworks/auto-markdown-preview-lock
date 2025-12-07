@@ -38,10 +38,35 @@ exports.deactivate = deactivate;
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 const vscode = __importStar(require("vscode"));
+const config_1 = require("./config");
 const MARKDOWN_LANGUAGE_ID = 'markdown';
 let currentPreviewUri;
 let isAdjustingFocus = false;
-const previewToSide = async (editor) => {
+const focusCommandForViewColumn = (viewColumn) => {
+    switch (viewColumn) {
+        case vscode.ViewColumn.One:
+            return 'workbench.action.focusFirstEditorGroup';
+        case vscode.ViewColumn.Two:
+            return 'workbench.action.focusSecondEditorGroup';
+        case vscode.ViewColumn.Three:
+            return 'workbench.action.focusThirdEditorGroup';
+        case vscode.ViewColumn.Four:
+            return 'workbench.action.focusFourthEditorGroup';
+        case vscode.ViewColumn.Five:
+            return 'workbench.action.focusFifthEditorGroup';
+        case vscode.ViewColumn.Six:
+            return 'workbench.action.focusSixthEditorGroup';
+        case vscode.ViewColumn.Seven:
+            return 'workbench.action.focusSeventhEditorGroup';
+        case vscode.ViewColumn.Eight:
+            return 'workbench.action.focusEighthEditorGroup';
+        case vscode.ViewColumn.Nine:
+            return 'workbench.action.focusNinthEditorGroup';
+        default:
+            return undefined;
+    }
+};
+const openPreview = async (editor) => {
     try {
         await vscode.commands.executeCommand('markdown.showPreviewToSide', editor.document.uri);
         currentPreviewUri = editor.document.uri;
@@ -54,6 +79,36 @@ const previewToSide = async (editor) => {
     }
     catch (error) {
         console.error('[auto-markdown-preview-lock] failed to open preview:', error);
+    }
+};
+const lockPreviewGroupIfNeeded = async (shouldLock, fallbackEditor) => {
+    if (!shouldLock) {
+        return;
+    }
+    const target = findMarkdownPreviewTab();
+    if (!target) {
+        return;
+    }
+    const activeBefore = vscode.window.activeTextEditor;
+    const focusCommand = focusCommandForViewColumn(target.group.viewColumn);
+    try {
+        if (focusCommand) {
+            await vscode.commands.executeCommand(focusCommand);
+        }
+        await vscode.commands.executeCommand('workbench.action.lockEditorGroup');
+    }
+    catch (error) {
+        console.error('[auto-markdown-preview-lock] failed to lock preview group:', error);
+    }
+    finally {
+        // Restore focus to the main editor.
+        if (activeBefore) {
+            await vscode.window.showTextDocument(fallbackEditor.document, {
+                viewColumn: fallbackEditor.viewColumn,
+                preserveFocus: false,
+                preview: false,
+            });
+        }
     }
 };
 const isMarkdownEditor = (editor) => {
@@ -90,8 +145,8 @@ const closeMarkdownPreviewIfExists = async () => {
         console.error('[auto-markdown-preview-lock] failed to close markdown preview:', error);
     }
 };
-const ensureEditorInPrimaryColumn = async (editor) => {
-    if (editor.viewColumn === vscode.ViewColumn.One) {
+const ensureEditorInPrimaryColumn = async (editor, forcePrimary) => {
+    if (!forcePrimary || editor.viewColumn === vscode.ViewColumn.One) {
         return editor;
     }
     isAdjustingFocus = true;
@@ -111,25 +166,33 @@ const handleActiveEditorChange = async (editor) => {
     if (isAdjustingFocus) {
         return;
     }
+    const settings = (0, config_1.getAutoMdPreviewConfig)();
     // If focus moves to a webview or nowhere, do nothing to avoid closing the preview we just opened.
     if (!editor) {
         return;
     }
     if (!isMarkdownEditor(editor)) {
-        await closeMarkdownPreviewIfExists();
+        if (settings.closePreviewOnNonMarkdown) {
+            await closeMarkdownPreviewIfExists();
+        }
         // Move non-Markdown back to primary column to avoid opening on the right preview side.
-        await ensureEditorInPrimaryColumn(editor);
+        await ensureEditorInPrimaryColumn(editor, settings.alwaysOpenInPrimaryEditor);
+        return;
+    }
+    if (!settings.enableAutoPreview) {
+        await ensureEditorInPrimaryColumn(editor, settings.alwaysOpenInPrimaryEditor);
         return;
     }
     // Keep Markdown editing on the primary (left) column to prevent cascading groups on the right.
-    const primaryEditor = await ensureEditorInPrimaryColumn(editor);
+    const primaryEditor = await ensureEditorInPrimaryColumn(editor, settings.alwaysOpenInPrimaryEditor);
     // Skip reopening if we are already previewing the same document and the tab is present.
     if (currentPreviewUri?.toString() === primaryEditor.document.uri.toString() && findMarkdownPreviewTab()) {
         return;
     }
     // Close stale preview before opening a new one to avoid cascading groups.
     await closeMarkdownPreviewIfExists();
-    await previewToSide(primaryEditor);
+    await openPreview(primaryEditor);
+    await lockPreviewGroupIfNeeded(settings.alwaysOpenInPrimaryEditor, primaryEditor);
 };
 function activate(context) {
     console.log('Auto Markdown Preview Lock extension activated');
