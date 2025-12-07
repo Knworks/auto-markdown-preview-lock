@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { getAutoMdPreviewConfig } from './config';
 import {
 	getPreviewState,
+	PreviewState,
 	resetPreviewState,
 	setCurrentPreviewUri,
 	setLastActiveKind,
@@ -89,6 +90,38 @@ const lockPreviewGroupIfNeeded = async (
 	}
 };
 
+const unlockPreviewGroupIfNeeded = async (state: PreviewState, fallbackEditor: vscode.TextEditor): Promise<void> => {
+	if (!state.isPreviewLocked) {
+		return;
+	}
+	const target = findMarkdownPreviewTab();
+	if (!target) {
+		setPreviewLocked(false);
+		return;
+	}
+
+	const activeBefore = vscode.window.activeTextEditor;
+	const focusCommand = focusCommandForViewColumn(target.group.viewColumn);
+
+	try {
+		if (focusCommand) {
+			await vscode.commands.executeCommand(focusCommand);
+		}
+		await vscode.commands.executeCommand('workbench.action.unlockEditorGroup');
+		setPreviewLocked(false);
+	} catch (error) {
+		console.error('[auto-markdown-preview-lock] failed to unlock preview group:', error);
+	} finally {
+		if (activeBefore) {
+			await vscode.window.showTextDocument(fallbackEditor.document, {
+				viewColumn: fallbackEditor.viewColumn,
+				preserveFocus: false,
+				preview: false,
+			});
+		}
+	}
+};
+
 const isMarkdownEditor = (editor: vscode.TextEditor | undefined): editor is vscode.TextEditor => {
 	return !!editor && editor.document.languageId === MARKDOWN_LANGUAGE_ID;
 };
@@ -163,6 +196,8 @@ const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): 
 	if (!isMarkdownEditor(editor)) {
 		setLastActiveKind('non-markdown');
 		if (settings.closePreviewOnNonMarkdown) {
+			const state = getPreviewState();
+			await unlockPreviewGroupIfNeeded(state, editor);
 			await closeMarkdownPreviewIfExists();
 		}
 		// Move non-Markdown back to primary column to avoid opening on the right preview side.
