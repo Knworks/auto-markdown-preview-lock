@@ -2,25 +2,41 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
+const MARKDOWN_LANGUAGE_ID = 'markdown';
+
+const previewToSide = async (uri: vscode.Uri): Promise<void> => {
+	try {
+		await vscode.commands.executeCommand('markdown.showPreviewToSide', uri);
+		// Return focus to the active editor group to avoid stealing focus to the preview.
+		await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+	} catch (error) {
+		console.error('[auto-markdown-preview-lock] failed to open preview:', error);
+	}
+};
+
+const isMarkdownEditor = (editor: vscode.TextEditor | undefined): editor is vscode.TextEditor => {
+	return !!editor && editor.document.languageId === MARKDOWN_LANGUAGE_ID;
+};
+
+const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): Promise<void> => {
+	if (!isMarkdownEditor(editor)) {
+		return;
+	}
+
+	await previewToSide(editor.document.uri);
+};
+
 export function activate(context: vscode.ExtensionContext) {
+	console.log('Auto Markdown Preview Lock extension activated');
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "auto-markdown-preview-lock" is now active!');
+	context.subscriptions.push(
+		vscode.window.onDidChangeActiveTextEditor((editor) => {
+			void handleActiveEditorChange(editor);
+		}),
+	);
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('auto-markdown-preview-lock.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from auto-markdown-preview-lock!');
-	});
-
-	context.subscriptions.push(disposable);
+	// Handle already active editor when the extension activates.
+	void handleActiveEditorChange(vscode.window.activeTextEditor);
 }
 
-// This method is called when your extension is deactivated
 export function deactivate() {}
