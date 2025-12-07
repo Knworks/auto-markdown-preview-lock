@@ -1,0 +1,49 @@
+{
+  "name": "auto-markdown-preview-lock",
+  "displayName": "auto-markdown-preview-lock",
+  "description": "A Visual Studio Code extension that automatically opens the Markdown preview when you open a Markdown file.Optional settings let you lock the right editor group to keep the preview pinned and automate preview open/close behavior.",
+  "version": "0.0.1",
+  "publisher": "Knworks",
+  "license": "MIT",
+  "icon": "images/icon.png",
+  "engines": {
+    "vscode": "^1.106.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "auto-markdown-preview-lock.helloWorld",
+        "title": "Hello World"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && tsc --project tsconfig.json",
+    "watch": "npm run watch:tsc",
+    "watch:tsc": "tsc --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && tsc --project tsconfig.json",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.106.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "@typescript-eslint/eslint-plugin": "^8.31.1",
+    "@typescript-eslint/parser": "^8.31.1",
+    "eslint": "^9.25.1",
+    "typescript": "^5.8.3",
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2"
+  }
+}
