@@ -12,7 +12,47 @@ import {
 } from './state';
 
 const MARKDOWN_LANGUAGE_ID = 'markdown';
+const COMMAND_TIMEOUT_MS = 300;
 let isAdjustingFocus = false;
+let trustWarningShown = false;
+let lastHandledKey: string | undefined;
+let lastHandledAt = 0;
+
+const logWarn = (...args: unknown[]) => console.warn('[auto-markdown-preview-lock]', ...args);
+const logError = (...args: unknown[]) => console.error('[auto-markdown-preview-lock]', ...args);
+
+const executeCommandSafely = async (command: string, args: unknown[] = [], timeoutMs = COMMAND_TIMEOUT_MS) => {
+	let timeout: NodeJS.Timeout | undefined;
+	const timeoutPromise = new Promise((_, reject) => {
+		timeout = setTimeout(() => {
+			reject(new Error(`Command ${command} timed out after ${timeoutMs}ms`));
+		}, timeoutMs);
+	});
+
+	try {
+		await Promise.race([vscode.commands.executeCommand(command, ...args), timeoutPromise]);
+	} catch (error) {
+		logWarn(`Command ${command} failed or timed out`, error);
+	} finally {
+		if (timeout) {
+			clearTimeout(timeout);
+		}
+	}
+};
+
+const isWorkspaceTrusted = async (): Promise<boolean> => {
+	if (vscode.workspace.isTrusted === false) {
+		if (!trustWarningShown) {
+			trustWarningShown = true;
+			/* c8 ignore next */
+			await vscode.window.showWarningMessage(
+				'Auto Markdown Preview Lock is disabled because the workspace is not trusted.',
+			);
+		}
+		return false;
+	}
+	return true;
+};
 
 const focusCommandForViewColumn = (viewColumn: vscode.ViewColumn | undefined): string | undefined => {
 	switch (viewColumn) {
@@ -41,7 +81,7 @@ const focusCommandForViewColumn = (viewColumn: vscode.ViewColumn | undefined): s
 
 const openPreview = async (editor: vscode.TextEditor): Promise<void> => {
 	try {
-		await vscode.commands.executeCommand('markdown.showPreviewToSide', editor.document.uri);
+		await executeCommandSafely('markdown.showPreviewToSide', [editor.document.uri]);
 		setCurrentPreviewUri(editor.document.uri);
 		// Ensure the text editor retains focus after opening preview.
 		await vscode.window.showTextDocument(editor.document, {
@@ -51,7 +91,7 @@ const openPreview = async (editor: vscode.TextEditor): Promise<void> => {
 		});
 	} catch (error) {
 		/* c8 ignore next */
-		console.error('[auto-markdown-preview-lock] failed to open preview:', error);
+		logError('failed to open preview:', error);
 	}
 };
 
@@ -73,13 +113,13 @@ const lockPreviewGroupIfNeeded = async (
 
 	try {
 		if (focusCommand) {
-			await vscode.commands.executeCommand(focusCommand);
+			await executeCommandSafely(focusCommand);
 		}
-		await vscode.commands.executeCommand('workbench.action.lockEditorGroup');
+		await executeCommandSafely('workbench.action.lockEditorGroup');
 		setPreviewLocked(true);
 	} catch (error) {
 		/* c8 ignore next */
-		console.error('[auto-markdown-preview-lock] failed to lock preview group:', error);
+		logError('failed to lock preview group:', error);
 	} finally {
 		// Restore focus to the main editor.
 		if (activeBefore) {
@@ -107,14 +147,14 @@ const unlockPreviewGroupIfNeeded = async (state: PreviewState, fallbackEditor: v
 
 	try {
 		if (focusCommand) {
-			await vscode.commands.executeCommand(focusCommand);
-		}
-		await vscode.commands.executeCommand('workbench.action.unlockEditorGroup');
+		await executeCommandSafely(focusCommand);
+	}
+		await executeCommandSafely('workbench.action.unlockEditorGroup');
 		setPreviewLocked(false);
 	}
 	/* c8 ignore start */
 	catch (error) {
-		console.error('[auto-markdown-preview-lock] failed to unlock preview group:', error);
+		logError('failed to unlock preview group:', error);
 	}
 	/* c8 ignore end */
 	finally {
@@ -179,7 +219,7 @@ const ensureEditorInPrimaryColumn = async (
 	}
 	isAdjustingFocus = true;
 	try {
-		await vscode.commands.executeCommand('workbench.action.moveEditorToFirstGroup');
+		await executeCommandSafely('workbench.action.moveEditorToFirstGroup');
 		return await vscode.window.showTextDocument(editor.document, {
 			viewColumn: vscode.ViewColumn.One,
 			preserveFocus: false,
@@ -194,6 +234,16 @@ const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): 
 	if (isAdjustingFocus) {
 		return;
 	}
+
+	const now = Date.now();
+	const key = editor
+		? `${editor.document.uri.toString()}::${editor.viewColumn ?? 0}::${editor.document.languageId}`
+		: 'none';
+	if (key === lastHandledKey && now - lastHandledAt < 200) {
+		return;
+	}
+	lastHandledKey = key;
+	lastHandledAt = now;
 
 	const settings = getAutoMdPreviewConfig();
 
@@ -217,6 +267,11 @@ const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): 
 	if (!settings.enableAutoPreview) {
 		setLastActiveKind('markdown');
 		await ensureEditorInPrimaryColumn(editor, settings.alwaysOpenInPrimaryEditor);
+		return;
+	}
+
+	const trusted = await isWorkspaceTrusted();
+	if (!trusted) {
 		return;
 	}
 

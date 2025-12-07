@@ -13,6 +13,7 @@ export const tabGroups = {
 export const window = {
 	tabGroups,
 	activeTextEditor: undefined as any,
+	showWarningMessage: vi.fn(),
 	showTextDocument: vi.fn(async (document: any, options?: any) => ({
 		document,
 		viewColumn: options?.viewColumn ?? 1,
@@ -21,6 +22,7 @@ export const window = {
 };
 
 export const workspace = {
+	isTrusted: true,
 	getConfiguration: vi.fn(() => ({
 		get: (_key: string) => undefined,
 	})),
@@ -64,7 +66,9 @@ export const resetMocks = () => {
 	window.activeTextEditor = undefined;
 	window.showTextDocument.mockReset();
 	window.onDidChangeActiveTextEditor.mockReset();
+	window.showWarningMessage.mockReset();
 	workspace.getConfiguration.mockReset();
+	workspace.isTrusted = true;
 };
 
 export const setConfigValues = (values: Record<string, unknown>) => {

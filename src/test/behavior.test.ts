@@ -279,4 +279,29 @@ describe('handleActiveEditorChange', () => {
 		await __handleActiveEditorChangeForTest(nonMd);
 		expect(__mocks.window.showTextDocument).toHaveBeenCalled();
 	});
+
+	it('halts behavior when workspace is untrusted', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: true,
+			alwaysOpenInPrimaryEditor: true,
+		});
+		__mocks.workspace.isTrusted = false;
+		const editor = createTextEditor('/k.md', 'markdown', ViewColumn.One);
+		await __handleActiveEditorChangeForTest(editor);
+		expect(__mocks.commands.executeCommand).not.toHaveBeenCalled();
+		expect(__mocks.window.showWarningMessage).toHaveBeenCalledTimes(1);
+	});
+
+	it('logs and continues when command execution fails', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: true,
+			alwaysOpenInPrimaryEditor: true,
+		});
+		__mocks.commands.executeCommand.mockRejectedValueOnce(new Error('fail command'));
+		const editor = createTextEditor('/l.md', 'markdown', ViewColumn.One);
+		await __handleActiveEditorChangeForTest(editor);
+		expect(__mocks.commands.executeCommand).toHaveBeenCalled();
+	});
 });
