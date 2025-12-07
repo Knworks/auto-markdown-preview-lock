@@ -16,7 +16,9 @@ import {
 	setLastNonMarkdownPlacement,
 } from '../state';
 
-const createTextEditor = (uriPath: string, languageId: string, viewColumn = ViewColumn.One) =>
+type ViewColumnValue = (typeof ViewColumn)[keyof typeof ViewColumn];
+
+const createTextEditor = (uriPath: string, languageId: string, viewColumn: ViewColumnValue = ViewColumn.One) =>
 	({
 		document: {
 			languageId,
