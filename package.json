@@ -51,22 +51,31 @@
     "watch": "npm run watch:tsc",
     "watch:tsc": "tsc --watch --project tsconfig.json",
     "package": "npm run check-types && npm run lint && tsc --project tsconfig.json",
-    "compile-tests": "tsc -p . --outDir out",
-    "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "pretest": "npm run compile && npm run lint",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "npm run test:unit",
+    "test:unit": "vitest run --coverage --passWithNoTests",
+    "test:integration": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.106.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
+    "@types/vscode": "^1.106.0",
     "@typescript-eslint/eslint-plugin": "^8.31.1",
     "@typescript-eslint/parser": "^8.31.1",
+    "@vitest/coverage-v8": "^4.0.15",
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.25.1",
     "typescript": "^5.8.3",
-    "@vscode/test-cli": "^0.0.11",
-    "@vscode/test-electron": "^2.5.2"
+    "vitest": "^4.0.15"
+  },
+  "vitest": {
+    "exclude": [
+      "dist/**",
+      "out/**",
+      "**/node_modules/**"
+    ]
   }
 }

@@ -50,6 +50,7 @@ const openPreview = async (editor: vscode.TextEditor): Promise<void> => {
 			preview: false,
 		});
 	} catch (error) {
+		/* c8 ignore next */
 		console.error('[auto-markdown-preview-lock] failed to open preview:', error);
 	}
 };
@@ -77,6 +78,7 @@ const lockPreviewGroupIfNeeded = async (
 		await vscode.commands.executeCommand('workbench.action.lockEditorGroup');
 		setPreviewLocked(true);
 	} catch (error) {
+		/* c8 ignore next */
 		console.error('[auto-markdown-preview-lock] failed to lock preview group:', error);
 	} finally {
 		// Restore focus to the main editor.
@@ -109,9 +111,13 @@ const unlockPreviewGroupIfNeeded = async (state: PreviewState, fallbackEditor: v
 		}
 		await vscode.commands.executeCommand('workbench.action.unlockEditorGroup');
 		setPreviewLocked(false);
-	} catch (error) {
+	}
+	/* c8 ignore start */
+	catch (error) {
 		console.error('[auto-markdown-preview-lock] failed to unlock preview group:', error);
-	} finally {
+	}
+	/* c8 ignore end */
+	finally {
 		if (activeBefore) {
 			await vscode.window.showTextDocument(fallbackEditor.document, {
 				viewColumn: fallbackEditor.viewColumn,
@@ -156,9 +162,12 @@ const closeMarkdownPreviewIfExists = async (): Promise<void> => {
 		await vscode.window.tabGroups.close(target.tab, true);
 		resetPreviewState();
 		setPreviewLocked(false);
-	} catch (error) {
+	}
+	/* c8 ignore start */
+	catch (error) {
 		console.error('[auto-markdown-preview-lock] failed to close markdown preview:', error);
 	}
+	/* c8 ignore end */
 };
 
 const ensureEditorInPrimaryColumn = async (
@@ -227,6 +236,7 @@ const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): 
 	await lockPreviewGroupIfNeeded(settings.alwaysOpenInPrimaryEditor, primaryEditor);
 };
 
+/* c8 ignore next 20 */
 export function activate(context: vscode.ExtensionContext) {
 	console.log('Auto Markdown Preview Lock extension activated');
 
@@ -241,3 +251,9 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {}
+
+// Export for unit tests.
+export const __handleActiveEditorChangeForTest = handleActiveEditorChange;
+export const __setAdjustingFocusForTest = (value: boolean) => {
+	isAdjustingFocus = value;
+};

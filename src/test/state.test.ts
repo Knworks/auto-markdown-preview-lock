@@ -1,4 +1,5 @@
-import * as assert from 'assert';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+vi.mock('vscode', async () => await import('./vscodeMock'));
 import {
 	getPreviewState,
 	resetAllState,
@@ -7,50 +8,50 @@ import {
 	setLastActiveKind,
 	setPreviewLocked,
 } from '../state';
-import * as vscode from 'vscode';
 
-suite('state management', () => {
-	setup(() => {
+const uri = (path: string) => ({ fsPath: path, toString: () => path } as any);
+
+describe('state management', () => {
+	beforeEach(() => {
 		resetAllState();
 	});
 
-	test('initial state is defaults', () => {
+	it('initial state is defaults', () => {
 		const state = getPreviewState();
-		assert.strictEqual(state.currentPreviewUri, undefined);
-		assert.strictEqual(state.lastActiveKind, 'non-markdown');
-		assert.strictEqual(state.isPreviewLocked, false);
+		expect(state.currentPreviewUri).toBeUndefined();
+		expect(state.lastActiveKind).toBe('non-markdown');
+		expect(state.isPreviewLocked).toBe(false);
 	});
 
-	test('sets preview uri and locked flag', () => {
-		const uri = vscode.Uri.file('/tmp/example.md');
-		setCurrentPreviewUri(uri);
+	it('sets preview uri and locked flag', () => {
+		setCurrentPreviewUri(uri('/tmp/example.md'));
 		setPreviewLocked(true);
 		const state = getPreviewState();
-		assert.strictEqual(state.currentPreviewUri?.fsPath, uri.fsPath);
-		assert.strictEqual(state.isPreviewLocked, true);
+		expect(state.currentPreviewUri?.fsPath).toBe('/tmp/example.md');
+		expect(state.isPreviewLocked).toBe(true);
 	});
 
-	test('resetPreviewState clears preview but keeps lastActiveKind', () => {
+	it('resetPreviewState clears preview but keeps lastActiveKind', () => {
 		setLastActiveKind('markdown');
-		setCurrentPreviewUri(vscode.Uri.file('/tmp/example.md'));
+		setCurrentPreviewUri(uri('/tmp/example.md'));
 		setPreviewLocked(true);
 
 		resetPreviewState();
 		const state = getPreviewState();
-		assert.strictEqual(state.currentPreviewUri, undefined);
-		assert.strictEqual(state.isPreviewLocked, false);
-		assert.strictEqual(state.lastActiveKind, 'markdown');
+		expect(state.currentPreviewUri).toBeUndefined();
+		expect(state.isPreviewLocked).toBe(false);
+		expect(state.lastActiveKind).toBe('markdown');
 	});
 
-	test('resetAllState resets everything', () => {
+	it('resetAllState resets everything', () => {
 		setLastActiveKind('markdown');
-		setCurrentPreviewUri(vscode.Uri.file('/tmp/example.md'));
+		setCurrentPreviewUri(uri('/tmp/example.md'));
 		setPreviewLocked(true);
 
 		resetAllState();
 		const state = getPreviewState();
-		assert.strictEqual(state.currentPreviewUri, undefined);
-		assert.strictEqual(state.isPreviewLocked, false);
-		assert.strictEqual(state.lastActiveKind, 'non-markdown');
+		expect(state.currentPreviewUri).toBeUndefined();
+		expect(state.isPreviewLocked).toBe(false);
+		expect(state.lastActiveKind).toBe('non-markdown');
 	});
 });

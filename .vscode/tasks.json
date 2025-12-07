@@ -35,6 +35,13 @@
             },
             "options": {}
         },
+        {
+            "type": "npm",
+            "script": "compile",
+            "group": "build",
+            "problemMatcher": "$tsc",
+            "label": "npm: compile"
+        },
 		{
             "type": "npm",
             "script": "watch-tests",
