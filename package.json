@@ -2,7 +2,7 @@
   "name": "auto-markdown-preview-lock",
   "displayName": "auto-markdown-preview-lock",
   "description": "A Visual Studio Code extension that automatically opens the Markdown preview when you open a Markdown file.Optional settings let you lock the right editor group to keep the preview pinned and automate preview open/close behavior.",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "publisher": "Knworks",
   "license": "MIT",
   "icon": "images/icon.png",
