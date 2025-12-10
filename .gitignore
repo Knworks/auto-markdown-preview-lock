@@ -1,0 +1,6 @@
+.serena/
+node_modules/
+dist/
+coverage/
+out/
+.DS_Store

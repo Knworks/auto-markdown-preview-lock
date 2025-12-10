@@ -29,6 +29,13 @@ const logError = (...args: unknown[]) => console.error('[auto-markdown-preview-l
 
 const uriKey = (uri: vscode.Uri | undefined): string | undefined => uri?.toString();
 
+const isDiffTab = (tab: vscode.Tab | undefined): boolean => {
+	if (!tab?.input) {
+		return false;
+	}
+	return tab.input instanceof vscode.TabInputTextDiff;
+};
+
 const executeCommandSafely = async (command: string, args: unknown[] = [], timeoutMs = COMMAND_TIMEOUT_MS) => {
 	let timeout: NodeJS.Timeout | undefined;
 	const timeoutPromise = new Promise((_, reject) => {
@@ -298,6 +305,11 @@ const ensureEditorInPrimaryColumn = async (
 
 const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): Promise<void> => {
 	if (isAdjustingFocus) {
+		return;
+	}
+	const activeTab = vscode.window.tabGroups.activeTabGroup?.activeTab;
+	if (isDiffTab(activeTab)) {
+		await closeMarkdownPreviewIfExists();
 		return;
 	}
 

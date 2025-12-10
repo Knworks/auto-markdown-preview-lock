@@ -48,6 +48,10 @@ export class TabInputText {
 	constructor(public uri: any) {}
 }
 
+export class TabInputTextDiff {
+	constructor(public original: any, public modified: any) {}
+}
+
 export const Uri = {
 	file: (path: string) =>
 		({
@@ -67,6 +71,7 @@ export const resetMocks = () => {
 	commands.executeCommand.mockReset();
 	tabGroups.all = [];
 	tabGroups.close.mockReset();
+	tabGroups.activeTabGroup = undefined;
 	window.activeTextEditor = undefined;
 	window.showTextDocument.mockReset();
 	window.onDidChangeActiveTextEditor.mockReset();

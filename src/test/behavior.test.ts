@@ -5,7 +5,16 @@ import {
 	__handleDocumentCloseForTest,
 	__setAdjustingFocusForTest,
 } from '../extension';
-import { resetMocks, setConfigValues, __mocks, ViewColumn, TabInputWebview, TabInputText, Uri } from './vscodeMock';
+import {
+	resetMocks,
+	setConfigValues,
+	__mocks,
+	ViewColumn,
+	TabInputWebview,
+	TabInputText,
+	TabInputTextDiff,
+	Uri,
+} from './vscodeMock';
 import {
 	resetAllState,
 	setPreviewLocked,
@@ -123,6 +132,30 @@ describe('handleActiveEditorChange', () => {
 		const editor = createTextEditor('/a.md', 'markdown', ViewColumn.One);
 		await __handleActiveEditorChangeForTest(editor);
 		expect(__mocks.commands.executeCommand).not.toHaveBeenCalled();
+	});
+
+	it('ignores events when the active tab is a text diff', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: true,
+			alwaysOpenInPrimaryEditor: true,
+		});
+		__mocks.tabGroups.activeTabGroup = {
+			activeTab: {
+				input: new TabInputTextDiff(Uri.file('/a.md'), Uri.file('/a.md')),
+			},
+		} as any;
+		__mocks.tabGroups.all = [
+			{
+				tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
+				viewColumn: ViewColumn.Two,
+			},
+		] as any;
+
+		const editor = createTextEditor('/a.md', 'markdown', ViewColumn.One);
+		await __handleActiveEditorChangeForTest(editor);
+		expect(__mocks.commands.executeCommand).not.toHaveBeenCalled();
+		expect(__mocks.tabGroups.close).toHaveBeenCalledTimes(1);
 	});
 
 	it('skips close when closePreviewOnNonMarkdown is false', async () => {
