@@ -21,6 +21,10 @@ describe('state management', () => {
 		expect(state.currentPreviewUri).toBeUndefined();
 		expect(state.lastActiveKind).toBe('non-markdown');
 		expect(state.isPreviewLocked).toBe(false);
+		expect(state.lockedPreviewGroupViewColumn).toBeUndefined();
+		expect(state.isSplitMode).toBe(false);
+		expect(state.splitPinnedRightUri).toBeUndefined();
+		expect(state.suppressAutoPreviewUri).toBeUndefined();
 	});
 
 	it('sets preview uri and locked flag', () => {

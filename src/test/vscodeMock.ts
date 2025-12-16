@@ -8,17 +8,20 @@ export const tabGroups = {
 	all: [] as any[],
 	close: vi.fn(),
 	activeTabGroup: undefined as any,
+	onDidChangeTabs: vi.fn(),
 };
 
 export const window = {
 	tabGroups,
 	activeTextEditor: undefined as any,
+	visibleTextEditors: [] as any[],
 	showWarningMessage: vi.fn(),
 	showTextDocument: vi.fn(async (document: any, options?: any) => ({
 		document,
 		viewColumn: options?.viewColumn ?? 1,
 	})),
 	onDidChangeActiveTextEditor: vi.fn(),
+	onDidChangeVisibleTextEditors: vi.fn(),
 };
 
 export const workspace = {
@@ -72,9 +75,12 @@ export const resetMocks = () => {
 	tabGroups.all = [];
 	tabGroups.close.mockReset();
 	tabGroups.activeTabGroup = undefined;
+	tabGroups.onDidChangeTabs.mockReset();
 	window.activeTextEditor = undefined;
+	window.visibleTextEditors = [];
 	window.showTextDocument.mockReset();
 	window.onDidChangeActiveTextEditor.mockReset();
+	window.onDidChangeVisibleTextEditors.mockReset();
 	window.showWarningMessage.mockReset();
 	workspace.getConfiguration.mockReset();
 	workspace.isTrusted = true;
