@@ -47,6 +47,23 @@ const isDiffTab = (tab: vscode.Tab | undefined): boolean => {
 	return tab.input instanceof vscode.TabInputTextDiff;
 };
 
+const isSourceControlDiffTab = (tab: vscode.Tab | undefined): boolean => {
+	if (!isDiffTab(tab)) {
+		return false;
+	}
+	const input = tab?.input as vscode.TabInputTextDiff | undefined;
+	const originalScheme = input?.original?.scheme;
+	const modifiedScheme = input?.modified?.scheme;
+	return (
+		originalScheme === 'git' ||
+		modifiedScheme === 'git' ||
+		originalScheme === 'vscode-scm' ||
+		modifiedScheme === 'vscode-scm' ||
+		originalScheme === 'scm' ||
+		modifiedScheme === 'scm'
+	);
+};
+
 const executeCommandSafely = async (
 	command: string,
 	args: unknown[] = [],
@@ -640,13 +657,37 @@ const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): 
 	if (isAdjustingFocus) {
 		return;
 	}
+	const now = Date.now();
 	const activeTab = vscode.window.tabGroups.activeTabGroup?.activeTab;
 	if (isDiffTab(activeTab)) {
+		const diffInput = activeTab?.input as vscode.TabInputTextDiff | undefined;
+		const diffKey = diffInput ? `diff:${diffInput.original.toString()}::${diffInput.modified.toString()}` : 'diff';
+		if (diffKey === lastHandledKey && now - lastHandledAt < 200) {
+			return;
+		}
+		lastHandledKey = diffKey;
+		lastHandledAt = now;
+
+		if (isSourceControlDiffTab(activeTab)) {
+			const activeGroupColumn = vscode.window.tabGroups.activeTabGroup?.viewColumn as vscode.ViewColumn | undefined;
+			const state = getPreviewState();
+			if (state.isPreviewLocked) {
+				await unlockPreviewGroupIfNeeded(state);
+				const focusCommand = focusCommandForViewColumn(activeGroupColumn);
+				if (focusCommand) {
+					await executeCommandSafely(focusCommand);
+				}
+			}
+			await closeMarkdownPreviewIfExists();
+			await executeCommandSafely('workbench.action.joinAllGroups');
+			setSplitMode(false);
+			setSplitPinnedRightUri(undefined);
+			return;
+		}
 		await closeMarkdownPreviewIfExists();
 		return;
 	}
 
-	const now = Date.now();
 	const key = editor
 		? `${editor.document.uri.toString()}::${editor.viewColumn ?? 0}::${editor.document.languageId}`
 		: 'none';

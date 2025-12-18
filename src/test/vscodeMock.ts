@@ -58,6 +58,7 @@ export class TabInputTextDiff {
 export const Uri = {
 	file: (path: string) =>
 		({
+			scheme: 'file',
 			fsPath: path,
 			toString: () => path,
 		}) as any,

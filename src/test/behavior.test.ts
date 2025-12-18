@@ -509,34 +509,77 @@ describe('handleActiveEditorChange', () => {
 		expect(__mocks.commands.executeCommand).not.toHaveBeenCalled();
 	});
 
-	it('ignores events when the active tab is a text diff', async () => {
-		setConfigValues({
-			enableAutoPreview: true,
-			closePreviewOnNonMarkdown: true,
-			alwaysOpenInPrimaryEditor: true,
+		it('ignores events when the active tab is a text diff', async () => {
+			setConfigValues({
+				enableAutoPreview: true,
+				closePreviewOnNonMarkdown: true,
+				alwaysOpenInPrimaryEditor: true,
+			});
+			__mocks.tabGroups.activeTabGroup = {
+				activeTab: {
+					input: new TabInputTextDiff(Uri.file('/a.md'), Uri.file('/a.md')),
+				},
+			} as any;
+			__mocks.tabGroups.all = [
+				{
+					tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
+					viewColumn: ViewColumn.Two,
+				},
+			] as any;
+
+			const editor = createTextEditor('/a.md', 'markdown', ViewColumn.One);
+			await __handleActiveEditorChangeForTest(editor);
+			expect(__mocks.commands.executeCommand).not.toHaveBeenCalled();
+			expect(__mocks.tabGroups.close).toHaveBeenCalledTimes(1);
 		});
-		__mocks.tabGroups.activeTabGroup = {
-			activeTab: {
-				input: new TabInputTextDiff(Uri.file('/a.md'), Uri.file('/a.md')),
-			},
-		} as any;
-		__mocks.tabGroups.all = [
-			{
-				tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
-				viewColumn: ViewColumn.Two,
-			},
-		] as any;
 
-		const editor = createTextEditor('/a.md', 'markdown', ViewColumn.One);
-		await __handleActiveEditorChangeForTest(editor);
-		expect(__mocks.commands.executeCommand).not.toHaveBeenCalled();
-		expect(__mocks.tabGroups.close).toHaveBeenCalledTimes(1);
-	});
+		it('closes preview and joins groups for source control diffs', async () => {
+			setConfigValues({
+				enableAutoPreview: true,
+				closePreviewOnNonMarkdown: true,
+				alwaysOpenInPrimaryEditor: true,
+			});
+			setSplitMode(true);
+			setSplitPinnedRightUri(Uri.file('/right.ts'));
+			setPreviewLocked(true);
+			setLockedPreviewGroupViewColumn(ViewColumn.Two);
 
-	it('skips close when closePreviewOnNonMarkdown is false', async () => {
-		setConfigValues({
-			enableAutoPreview: true,
-			closePreviewOnNonMarkdown: false,
+			const gitUri = (path: string) =>
+				({
+					scheme: 'git',
+					fsPath: path,
+					toString: () => `git:${path}`,
+				}) as any;
+
+			__mocks.tabGroups.activeTabGroup = {
+				viewColumn: ViewColumn.One,
+				activeTab: {
+					input: new TabInputTextDiff(gitUri('/a.md'), Uri.file('/a.md')),
+				},
+			} as any;
+			__mocks.tabGroups.all = [
+				{
+					tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
+					viewColumn: ViewColumn.Two,
+				},
+			] as any;
+
+			const editor = createTextEditor('/a.md', 'markdown', ViewColumn.One);
+			await __handleActiveEditorChangeForTest(editor);
+
+			const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+			expect(executed).toContain('workbench.action.focusSecondEditorGroup');
+			expect(executed).toContain('workbench.action.unlockEditorGroup');
+			expect(executed).toContain('workbench.action.joinAllGroups');
+			expect(__mocks.tabGroups.close).toHaveBeenCalledTimes(1);
+			expect(getPreviewState().isSplitMode).toBe(false);
+			expect(getPreviewState().splitPinnedRightUri).toBeUndefined();
+		});
+
+		it('skips close when closePreviewOnNonMarkdown is false', async () => {
+			setConfigValues({
+				enableAutoPreview: true,
+				closePreviewOnNonMarkdown: false,
 			alwaysOpenInPrimaryEditor: true,
 		});
 		__mocks.tabGroups.all = [
