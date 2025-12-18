@@ -27,9 +27,12 @@ let lastHandledAt = 0;
 let isClosingPreviewProgrammatically = false;
 let splitExitTimer: NodeJS.Timeout | undefined;
 let isClosingAllTabsProgrammatically = false;
+let isClosingEditorGroupsProgrammatically = false;
+let ignoreTabsChangeUntil = 0;
 let closeAllCandidateUntil = 0;
 let closeBurstTextClosedCount = 0;
 let closeBurstLastAt = 0;
+let lastTextTabCountsByViewColumn: Map<vscode.ViewColumn, number> | undefined;
 const userSplitNonMarkdownKeys = new Set<string>();
 
 const isPrimaryColumn = (column: vscode.ViewColumn | undefined): boolean =>
@@ -62,6 +65,33 @@ const isSourceControlDiffTab = (tab: vscode.Tab | undefined): boolean => {
 		originalScheme === 'scm' ||
 		modifiedScheme === 'scm'
 	);
+};
+
+const computeTextTabCountsByViewColumn = (): Map<vscode.ViewColumn, number> => {
+	const counts = new Map<vscode.ViewColumn, number>();
+	for (const group of vscode.window.tabGroups.all) {
+		const column = group.viewColumn as vscode.ViewColumn | undefined;
+		if (!column) {
+			continue;
+		}
+		const textTabCount = group.tabs.filter(
+			(tab) => tab.input instanceof vscode.TabInputText || tab.input instanceof vscode.TabInputTextDiff,
+		).length;
+		counts.set(column, textTabCount);
+	}
+	return counts;
+};
+
+const didAnyTextTabGroupBecomeEmpty = (
+	previous: Map<vscode.ViewColumn, number>,
+	current: Map<vscode.ViewColumn, number>,
+): boolean => {
+	for (const [column, previousCount] of previous.entries()) {
+		if (previousCount > 0 && (current.get(column) ?? 0) === 0) {
+			return true;
+		}
+	}
+	return false;
 };
 
 const executeCommandSafely = async (
@@ -425,14 +455,22 @@ const ensureAtMostTwoTextEditorGroups = async (): Promise<void> => {
 		return;
 	}
 	const activeBefore = vscode.window.activeTextEditor;
-	for (const column of columns.slice(2).reverse()) {
-		const focusCommand = focusCommandForViewColumn(column);
-		if (focusCommand) {
-			await executeCommandSafely(focusCommand);
-			await executeCommandSafely('workbench.action.closeEditorsAndGroup');
+	ignoreTabsChangeUntil = Math.max(ignoreTabsChangeUntil, Date.now() + 750);
+	isClosingEditorGroupsProgrammatically = true;
+	try {
+		for (const column of columns.slice(2).reverse()) {
+			const focusCommand = focusCommandForViewColumn(column);
+			if (focusCommand) {
+				await executeCommandSafely(focusCommand);
+				await executeCommandSafely('workbench.action.closeEditorsAndGroup');
+			}
 		}
+	} finally {
+		isClosingEditorGroupsProgrammatically = false;
+		ignoreTabsChangeUntil = Math.max(ignoreTabsChangeUntil, Date.now() + 750);
 	}
-	if (activeBefore) {
+
+	if (activeBefore && (activeBefore.viewColumn === vscode.ViewColumn.One || activeBefore.viewColumn === vscode.ViewColumn.Two)) {
 		await vscode.window.showTextDocument(activeBefore.document, {
 			viewColumn: activeBefore.viewColumn,
 			preserveFocus: false,
@@ -461,6 +499,22 @@ const closeEditorGroupIfEmpty = async (viewColumn: vscode.ViewColumn | undefined
 		return;
 	}
 	await executeCommandSafely('workbench.action.closeEditorsAndGroup');
+};
+
+const closeAllEmptyNonPrimaryGroups = async (): Promise<void> => {
+	const emptyColumns = vscode.window.tabGroups.all
+		.filter((group) => group.tabs.length === 0)
+		.map((group) => group.viewColumn as vscode.ViewColumn | undefined)
+		.filter((column): column is vscode.ViewColumn => column !== undefined && column !== vscode.ViewColumn.One)
+		.sort((a, b) => b - a);
+
+	if (emptyColumns.length === 0) {
+		return;
+	}
+	ignoreTabsChangeUntil = Math.max(ignoreTabsChangeUntil, Date.now() + 750);
+	for (const column of emptyColumns) {
+		await closeEditorGroupIfEmpty(column);
+	}
 };
 
 const updateSplitModeStateFromVisibleEditors = async (
@@ -522,93 +576,176 @@ const updateSplitModeStateFromVisibleEditors = async (
 };
 
 const handleTabsChange = async (event: vscode.TabChangeEvent): Promise<void> => {
-	if (isClosingAllTabsProgrammatically) {
-		return;
-	}
-	if (isClosingPreviewProgrammatically) {
-		return;
-	}
-	const state = getPreviewState();
-	const closedPreview = event.closed?.some(isMarkdownPreviewTab) ?? false;
-	if (closedPreview) {
-		const lastPreviewGroupViewColumn =
-			state.lastPreviewGroupViewColumn ?? (state.lockedPreviewGroupViewColumn as vscode.ViewColumn | undefined);
-		if (state.currentPreviewUri) {
-			setSuppressAutoPreviewUri(state.currentPreviewUri);
-		}
-		const fallbackEditor = vscode.window.activeTextEditor;
-		if (fallbackEditor) {
-			await unlockPreviewGroupIfNeeded(state, fallbackEditor);
-		}
-		if (!computeIsSplitModeNow()) {
-			await closeEditorGroupIfEmpty(lastPreviewGroupViewColumn);
-		}
-	}
-
-	const hasAnyTextTab = vscode.window.tabGroups.all.some((group) =>
-		group.tabs.some(
-			(tab) => tab.input instanceof vscode.TabInputText || tab.input instanceof vscode.TabInputTextDiff,
-		),
-	);
-	if (!hasAnyTextTab && state.isPreviewLocked) {
-		await unlockPreviewGroupIfNeeded(state);
-	}
-	// When nothing is open, ensure the primary group is not left locked.
-	if (!hasAnyTextTab) {
-		const focused = await executeCommandSafely('workbench.action.focusFirstEditorGroup');
-		if (focused) {
-			await executeCommandSafely('workbench.action.unlockEditorGroup');
-		}
-	}
-
 	const now = Date.now();
-	const closedTextCount =
-		event.opened?.length === 0
-			? (event.closed ?? []).filter(
-					(tab) => tab.input instanceof vscode.TabInputText || tab.input instanceof vscode.TabInputTextDiff,
-				).length
-			: 0;
-	if (closedTextCount > 0) {
-		if (now - closeBurstLastAt > 250) {
-			closeBurstTextClosedCount = 0;
-		}
-		closeBurstTextClosedCount += closedTextCount;
-		closeBurstLastAt = now;
-		if (closeBurstTextClosedCount >= 2) {
-			closeAllCandidateUntil = now + 500;
-		}
-	}
+	const ignoreCloseAllHeuristics = ignoreTabsChangeUntil !== 0 && now <= ignoreTabsChangeUntil;
+	const previousTextTabCountsByViewColumn = lastTextTabCountsByViewColumn;
+	const textGroupBecameEmpty =
+		previousTextTabCountsByViewColumn !== undefined &&
+		didAnyTextTabGroupBecomeEmpty(previousTextTabCountsByViewColumn, computeTextTabCountsByViewColumn());
 
-	const isCloseAllLike = (event.opened?.length ?? 0) === 0 && (event.closed?.length ?? 0) >= 2;
-	if (isCloseAllLike) {
-		const remainingTabs = vscode.window.tabGroups.all.flatMap((group) => group.tabs);
-		if (remainingTabs.length > 0) {
+	try {
+		if (isClosingAllTabsProgrammatically) {
+			return;
+		}
+		if (isClosingEditorGroupsProgrammatically) {
+			return;
+		}
+		if (isClosingPreviewProgrammatically) {
+			return;
+		}
+		const state = getPreviewState();
+		const closedPreview = event.closed?.some(isMarkdownPreviewTab) ?? false;
+		if (closedPreview) {
+			const lastPreviewGroupViewColumn =
+				state.lastPreviewGroupViewColumn ?? (state.lockedPreviewGroupViewColumn as vscode.ViewColumn | undefined);
+			if (state.currentPreviewUri) {
+				setSuppressAutoPreviewUri(state.currentPreviewUri);
+			}
+			const fallbackEditor = vscode.window.activeTextEditor;
+			if (fallbackEditor) {
+				await unlockPreviewGroupIfNeeded(state, fallbackEditor);
+			}
+			if (!computeIsSplitModeNow()) {
+				await closeEditorGroupIfEmpty(lastPreviewGroupViewColumn);
+			}
+		}
+
+		const hasAnyTextTab = vscode.window.tabGroups.all.some((group) =>
+			group.tabs.some(
+				(tab) => tab.input instanceof vscode.TabInputText || tab.input instanceof vscode.TabInputTextDiff,
+			),
+		);
+		if (!hasAnyTextTab && state.isPreviewLocked) {
+			await unlockPreviewGroupIfNeeded(state);
+		}
+		// When nothing is open, ensure the primary group is not left locked.
+		if (!hasAnyTextTab) {
+			const focused = await executeCommandSafely('workbench.action.focusFirstEditorGroup');
+			if (focused) {
+				await executeCommandSafely('workbench.action.unlockEditorGroup');
+			}
+		}
+
+		const closedTextCount =
+			event.opened?.length === 0
+				? (event.closed ?? []).filter(
+						(tab) => tab.input instanceof vscode.TabInputText || tab.input instanceof vscode.TabInputTextDiff,
+					).length
+				: 0;
+
+		// When a "Close All" action empties only one group (side-by-side), close the remaining splits for the same document.
+		if (textGroupBecameEmpty && hasAnyTextTab && closedTextCount > 0 && (event.opened?.length ?? 0) === 0) {
+			if (ignoreCloseAllHeuristics) {
+				return;
+			}
+
+			const closedTextUris = new Set(
+				(event.closed ?? [])
+					.map((tab) => tab.input)
+					.filter((input): input is vscode.TabInputText => input instanceof vscode.TabInputText)
+					.map((input) => input.uri.toString()),
+			);
+			const remainingSplitsForClosedUris = vscode.window.tabGroups.all
+				.flatMap((group) => group.tabs)
+				.filter(
+					(tab) =>
+						tab.input instanceof vscode.TabInputText && closedTextUris.has(tab.input.uri.toString()),
+				);
+
+			// If there are no remaining splits for the closed document(s), this is likely a normal single-tab close.
+			if (remainingSplitsForClosedUris.length === 0) {
+				return;
+			}
+
 			isClosingAllTabsProgrammatically = true;
 			try {
-				await vscode.window.tabGroups.close(remainingTabs, true);
+				if (state.isPreviewLocked) {
+					await unlockPreviewGroupIfNeeded(state);
+				}
+				await closeMarkdownPreviewIfExists();
+				await vscode.window.tabGroups.close(remainingSplitsForClosedUris, true);
+				await closeAllEmptyNonPrimaryGroups();
+				const focused = await executeCommandSafely('workbench.action.focusFirstEditorGroup');
+				if (focused) {
+					await executeCommandSafely('workbench.action.unlockEditorGroup');
+				}
+			} finally {
+				isClosingAllTabsProgrammatically = false;
+				closeAllCandidateUntil = 0;
+				closeBurstTextClosedCount = 0;
+				closeBurstLastAt = 0;
+			}
+			return;
+		}
+
+		// If all text tabs are closed (e.g. "Close All" with a single tab), never leave the markdown preview behind.
+		if (!hasAnyTextTab && closedTextCount > 0) {
+			if (state.isPreviewLocked) {
+				await unlockPreviewGroupIfNeeded(state);
+			}
+			await closeMarkdownPreviewIfExists();
+			await closeAllEmptyNonPrimaryGroups();
+		}
+
+		if (closedTextCount > 0) {
+			if (ignoreCloseAllHeuristics) {
+				return;
+			}
+			if (now - closeBurstLastAt > 250) {
+				closeBurstTextClosedCount = 0;
+			}
+			closeBurstTextClosedCount += closedTextCount;
+			closeBurstLastAt = now;
+			if (closeBurstTextClosedCount >= 2) {
+				closeAllCandidateUntil = now + 500;
+			}
+		}
+
+		const isCloseAllLike = (event.opened?.length ?? 0) === 0 && (event.closed?.length ?? 0) >= 2;
+		if (isCloseAllLike) {
+			if (ignoreCloseAllHeuristics) {
+				return;
+			}
+			isClosingAllTabsProgrammatically = true;
+			try {
+				if (state.isPreviewLocked) {
+					await unlockPreviewGroupIfNeeded(state);
+				}
+				await closeMarkdownPreviewIfExists();
+				const remainingTabs = vscode.window.tabGroups.all.flatMap((group) => group.tabs);
+				if (remainingTabs.length > 0) {
+					await vscode.window.tabGroups.close(remainingTabs, true);
+				}
+				await closeAllEmptyNonPrimaryGroups();
 			} finally {
 				isClosingAllTabsProgrammatically = false;
 			}
 		}
-	}
 
-	const isCloseAllCandidate = closeAllCandidateUntil !== 0 && now <= closeAllCandidateUntil;
-	if (isCloseAllCandidate && !hasAnyTextTab) {
-		isClosingAllTabsProgrammatically = true;
-		try {
-			await closeMarkdownPreviewIfExists();
-			const remainingTabs = vscode.window.tabGroups.all.flatMap((group) => group.tabs);
-			if (remainingTabs.length > 0) {
-				await vscode.window.tabGroups.close(remainingTabs, true);
+		const isCloseAllCandidate = closeAllCandidateUntil !== 0 && now <= closeAllCandidateUntil;
+		if (isCloseAllCandidate && !hasAnyTextTab) {
+			if (ignoreCloseAllHeuristics) {
+				return;
 			}
-		} finally {
-			isClosingAllTabsProgrammatically = false;
-			closeAllCandidateUntil = 0;
-			closeBurstTextClosedCount = 0;
-			closeBurstLastAt = 0;
+			isClosingAllTabsProgrammatically = true;
+			try {
+				await closeMarkdownPreviewIfExists();
+				const remainingTabs = vscode.window.tabGroups.all.flatMap((group) => group.tabs);
+				if (remainingTabs.length > 0) {
+					await vscode.window.tabGroups.close(remainingTabs, true);
+				}
+				await closeAllEmptyNonPrimaryGroups();
+			} finally {
+				isClosingAllTabsProgrammatically = false;
+				closeAllCandidateUntil = 0;
+				closeBurstTextClosedCount = 0;
+				closeBurstLastAt = 0;
+			}
 		}
+	} finally {
+		lastTextTabCountsByViewColumn = computeTextTabCountsByViewColumn();
 	}
-};
+};;;
 
 const ensureEditorInPrimaryColumn = async (
 	editor: vscode.TextEditor,
@@ -718,7 +855,15 @@ const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): 
 
 	const isSplitModeNow = stateBefore.isSplitMode || computeIsSplitModeNow();
 	if (isSplitModeNow) {
+		const activeColumnBeforeGroupCleanup = activeColumn;
 		await ensureAtMostTwoTextEditorGroups();
+		if (
+			activeColumnBeforeGroupCleanup !== undefined &&
+			activeColumnBeforeGroupCleanup > vscode.ViewColumn.Two
+		) {
+			// The active editor group may have been closed while consolidating groups; wait for the next editor change event.
+			return;
+		}
 		if (!stateBefore.isSplitMode) {
 			await updateSplitModeStateFromVisibleEditors();
 		}
@@ -907,15 +1052,18 @@ export const __resetInternalStateForTest = () => {
 	lastHandledAt = 0;
 	isClosingPreviewProgrammatically = false;
 	isClosingAllTabsProgrammatically = false;
+	isClosingEditorGroupsProgrammatically = false;
+	ignoreTabsChangeUntil = 0;
 	closeAllCandidateUntil = 0;
 	closeBurstTextClosedCount = 0;
 	closeBurstLastAt = 0;
+	lastTextTabCountsByViewColumn = undefined;
 	userSplitNonMarkdownKeys.clear();
 	if (splitExitTimer) {
 		clearTimeout(splitExitTimer);
 		splitExitTimer = undefined;
 	}
-};
+};;
 export const __setAdjustingFocusForTest = (value: boolean) => {
 	isAdjustingFocus = value;
 };

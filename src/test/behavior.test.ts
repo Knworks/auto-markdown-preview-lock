@@ -233,13 +233,13 @@ describe('handleActiveEditorChange', () => {
 		expect(executed).toContain('workbench.action.unlockEditorGroup');
 	});
 
-	it('closes remaining tabs when multiple tabs are closed at once (close all)', async () => {
-		__mocks.tabGroups.all = [
-			{
-				tabs: [{ input: new TabInputText(Uri.file('/remain.ts')) }],
-				viewColumn: ViewColumn.One,
-			},
-		] as any;
+		it('closes remaining tabs when multiple tabs are closed at once (close all)', async () => {
+			__mocks.tabGroups.all = [
+				{
+					tabs: [{ input: new TabInputText(Uri.file('/remain.ts')) }],
+					viewColumn: ViewColumn.One,
+				},
+			] as any;
 
 		await __handleTabsChangeForTest({
 			closed: [
@@ -250,13 +250,275 @@ describe('handleActiveEditorChange', () => {
 			changed: [],
 		} as any);
 
-		expect(__mocks.tabGroups.close).toHaveBeenCalledTimes(1);
-	});
+			expect(__mocks.tabGroups.close).toHaveBeenCalledTimes(1);
+		});
 
-	it('also closes markdown preview when close-all is emitted as multiple single close events', async () => {
-		// After "Close All", VS Code may emit tab close events one by one; assume only preview remains.
-		__mocks.tabGroups.all = [
-			{
+		it('closes the empty side group after close-all closes all editors', async () => {
+			__mocks.tabGroups.all = [
+				{
+					tabs: [{ input: new TabInputText(Uri.file('/left.ts')) }, { input: new TabInputText(Uri.file('/x.ts')) }],
+					viewColumn: ViewColumn.One,
+				},
+				{
+					tabs: [{ input: new TabInputText(Uri.file('/right.ts')) }],
+					viewColumn: ViewColumn.Two,
+				},
+			] as any;
+			__mocks.tabGroups.activeTabGroup = { viewColumn: ViewColumn.One } as any;
+
+			__mocks.tabGroups.close.mockImplementation(async (tabs: any) => {
+				const list = Array.isArray(tabs) ? tabs : [tabs];
+				for (const tab of list) {
+					for (const group of __mocks.tabGroups.all) {
+						group.tabs = (group.tabs ?? []).filter((candidate: any) => candidate !== tab);
+					}
+				}
+				return undefined as any;
+			});
+
+			await __handleTabsChangeForTest({
+				closed: [
+					{ input: new TabInputText(Uri.file('/a.ts')) },
+					{ input: new TabInputText(Uri.file('/b.ts')) },
+				],
+				opened: [],
+				changed: [],
+			} as any);
+
+			const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+			expect(executed).toContain('workbench.action.focusSecondEditorGroup');
+			expect(executed).toContain('workbench.action.closeEditorsAndGroup');
+		});
+
+		it('closes all editor groups (left/right/splits) and markdown preview when close-all empties one group', async () => {
+			const leftTab = { input: new TabInputText(Uri.file('/a.md')) } as any;
+			const rightTab = { input: new TabInputText(Uri.file('/a.md')) } as any;
+			const previewTab = { input: new TabInputWebview('vscode.markdown.preview.editor') } as any;
+
+			// Baseline state before the close-all action (needed for delta-based heuristics).
+			__mocks.tabGroups.all = [
+				{ tabs: [leftTab], viewColumn: ViewColumn.One },
+				{ tabs: [rightTab], viewColumn: ViewColumn.Two },
+				{ tabs: [previewTab], viewColumn: ViewColumn.Three },
+			] as any;
+			__mocks.tabGroups.activeTabGroup = { viewColumn: ViewColumn.One } as any;
+			await __handleTabsChangeForTest({ closed: [], opened: [], changed: [] } as any);
+
+			// After "Close All" in the left group, the left group becomes empty but other groups remain.
+			__mocks.tabGroups.all = [
+				{ tabs: [], viewColumn: ViewColumn.One },
+				{ tabs: [rightTab], viewColumn: ViewColumn.Two },
+				{ tabs: [previewTab], viewColumn: ViewColumn.Three },
+			] as any;
+
+			__mocks.tabGroups.close.mockImplementation(async (tabs: any) => {
+				const list = Array.isArray(tabs) ? tabs : [tabs];
+				for (const tab of list) {
+					for (const group of __mocks.tabGroups.all) {
+						group.tabs = (group.tabs ?? []).filter((candidate: any) => candidate !== tab);
+					}
+				}
+				return undefined as any;
+			});
+
+			__mocks.commands.executeCommand.mockClear();
+			__mocks.tabGroups.close.mockClear();
+			await __handleTabsChangeForTest({
+				closed: [leftTab],
+				opened: [],
+				changed: [],
+			} as any);
+
+			expect(__mocks.tabGroups.close).toHaveBeenCalled();
+			const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+			expect(executed).toContain('workbench.action.closeEditorsAndGroup');
+		});
+
+		it('does not close other groups when a single unique tab is closed and a group becomes empty', async () => {
+			const leftTab = { input: new TabInputText(Uri.file('/a.ts')) } as any;
+			const rightTab = { input: new TabInputText(Uri.file('/b.ts')) } as any;
+
+			// Baseline state before the close action (needed for delta-based heuristics).
+			__mocks.tabGroups.all = [
+				{ tabs: [leftTab], viewColumn: ViewColumn.One },
+				{ tabs: [rightTab], viewColumn: ViewColumn.Two },
+			] as any;
+			__mocks.tabGroups.activeTabGroup = { viewColumn: ViewColumn.One } as any;
+			await __handleTabsChangeForTest({ closed: [], opened: [], changed: [] } as any);
+
+			// After closing the last left tab, the left group becomes empty but the right group is unrelated.
+			__mocks.tabGroups.all = [
+				{ tabs: [], viewColumn: ViewColumn.One },
+				{ tabs: [rightTab], viewColumn: ViewColumn.Two },
+			] as any;
+
+			__mocks.tabGroups.close.mockImplementation(async (tabs: any) => {
+				const list = Array.isArray(tabs) ? tabs : [tabs];
+				for (const tab of list) {
+					for (const group of __mocks.tabGroups.all) {
+						group.tabs = (group.tabs ?? []).filter((candidate: any) => candidate !== tab);
+					}
+				}
+				return undefined as any;
+			});
+
+			__mocks.commands.executeCommand.mockClear();
+			__mocks.tabGroups.close.mockClear();
+			await __handleTabsChangeForTest({
+				closed: [leftTab],
+				opened: [],
+				changed: [],
+			} as any);
+
+			expect(__mocks.tabGroups.close).not.toHaveBeenCalled();
+			const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+			expect(executed).not.toContain('workbench.action.closeEditorsAndGroup');
+		});
+
+		it('closes markdown preview on close-all even when the preview group is locked', async () => {
+			setConfigValues({
+				enableAutoPreview: true,
+				closePreviewOnNonMarkdown: true,
+				alwaysOpenInPrimaryEditor: true,
+			});
+			setPreviewLocked(true);
+			setLockedPreviewGroupViewColumn(ViewColumn.Two as any);
+			__mocks.tabGroups.activeTabGroup = { viewColumn: ViewColumn.One } as any;
+			__mocks.tabGroups.all = [
+				{
+					tabs: [{ input: new TabInputText(Uri.file('/a.md')) }],
+					viewColumn: ViewColumn.One,
+				},
+				{
+					tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
+					viewColumn: ViewColumn.Two,
+				},
+			] as any;
+
+			await __handleTabsChangeForTest({
+				closed: [
+					{ input: new TabInputText(Uri.file('/a.ts')) },
+					{ input: new TabInputText(Uri.file('/b.ts')) },
+				],
+				opened: [],
+				changed: [],
+			} as any);
+
+			const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+			expect(executed).toContain('workbench.action.unlockEditorGroup');
+			expect(__mocks.tabGroups.close).toHaveBeenCalledTimes(2);
+		});
+
+		it('closes the empty preview group after close-all closes the markdown preview programmatically', async () => {
+			setConfigValues({
+				enableAutoPreview: true,
+				closePreviewOnNonMarkdown: true,
+				alwaysOpenInPrimaryEditor: true,
+			});
+
+			const previewTab = { input: new TabInputWebview('vscode.markdown.preview.editor') } as any;
+			__mocks.tabGroups.all = [
+				{
+					tabs: [previewTab],
+					viewColumn: ViewColumn.Two,
+				},
+			] as any;
+			__mocks.tabGroups.activeTabGroup = { viewColumn: ViewColumn.One } as any;
+
+			__mocks.tabGroups.close.mockImplementation(async (tabs: any) => {
+				const list = Array.isArray(tabs) ? tabs : [tabs];
+				for (const tab of list) {
+					for (const group of __mocks.tabGroups.all) {
+						group.tabs = (group.tabs ?? []).filter((candidate: any) => candidate !== tab);
+					}
+				}
+				return undefined as any;
+			});
+
+			__mocks.commands.executeCommand.mockClear();
+			await __handleTabsChangeForTest({
+				closed: [
+					{ input: new TabInputText(Uri.file('/a.ts')) },
+					{ input: new TabInputText(Uri.file('/b.ts')) },
+				],
+				opened: [],
+				changed: [],
+			} as any);
+
+			const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+			expect(executed).toContain('workbench.action.closeEditorsAndGroup');
+		});
+
+		it('closes markdown preview when the last text tab is closed', async () => {
+			setConfigValues({
+				enableAutoPreview: true,
+				closePreviewOnNonMarkdown: true,
+				alwaysOpenInPrimaryEditor: true,
+			});
+			__mocks.tabGroups.all = [
+				{
+					tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
+					viewColumn: ViewColumn.Two,
+				},
+			] as any;
+
+			await __handleTabsChangeForTest({
+				closed: [{ input: new TabInputText(Uri.file('/a.md')) }],
+				opened: [],
+				changed: [],
+			} as any);
+
+			expect(__mocks.tabGroups.close).toHaveBeenCalledTimes(1);
+		});
+
+		it('does not treat programmatic group consolidation as a user close-all', async () => {
+			setConfigValues({
+				enableAutoPreview: true,
+				closePreviewOnNonMarkdown: true,
+				alwaysOpenInPrimaryEditor: true,
+			});
+			setSplitMode(true);
+
+			const left = createTextEditor('/a.md', 'markdown', ViewColumn.One);
+			const right = createTextEditor('/a.md', 'markdown', ViewColumn.Two);
+			const extra = createTextEditor('/a.md', 'markdown', ViewColumn.Three);
+			__mocks.window.visibleTextEditors = [left, right, extra] as any;
+			__mocks.tabGroups.activeTabGroup = { viewColumn: ViewColumn.One } as any;
+			__mocks.tabGroups.all = [
+				{
+					tabs: [{ input: new TabInputText(Uri.file('/a.md')) }],
+					viewColumn: ViewColumn.One,
+				},
+				{
+					tabs: [{ input: new TabInputText(Uri.file('/a.md')) }],
+					viewColumn: ViewColumn.Two,
+				},
+				{
+					tabs: [{ input: new TabInputText(Uri.file('/a.md')) }, { input: new TabInputText(Uri.file('/b.md')) }],
+					viewColumn: ViewColumn.Three,
+				},
+			] as any;
+
+			await __handleActiveEditorChangeForTest(left);
+
+			__mocks.tabGroups.close.mockClear();
+			// Simulate VS Code emitting a multi-tab close event after group consolidation.
+			await __handleTabsChangeForTest({
+				closed: [
+					{ input: new TabInputText(Uri.file('/a.md')) },
+					{ input: new TabInputText(Uri.file('/b.md')) },
+				],
+				opened: [],
+				changed: [],
+			} as any);
+
+			expect(__mocks.tabGroups.close).not.toHaveBeenCalled();
+		});
+
+		it('also closes markdown preview when close-all is emitted as multiple single close events', async () => {
+			// After "Close All", VS Code may emit tab close events one by one; assume only preview remains.
+			__mocks.tabGroups.all = [
+				{
 				tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
 				viewColumn: ViewColumn.Two,
 			},
@@ -303,12 +565,12 @@ describe('handleActiveEditorChange', () => {
 		expect(__mocks.tabGroups.close).toHaveBeenCalled();
 	});
 
-	it('closes markdown preview and keeps the right editor when entering split mode', async () => {
-		setConfigValues({
-			enableAutoPreview: true,
-			closePreviewOnNonMarkdown: false,
-			alwaysOpenInPrimaryEditor: true,
-		});
+		it('closes markdown preview and keeps the right editor when entering split mode', async () => {
+			setConfigValues({
+				enableAutoPreview: true,
+				closePreviewOnNonMarkdown: false,
+				alwaysOpenInPrimaryEditor: true,
+			});
 		// Simulate a locked preview on the right.
 		__mocks.tabGroups.all = [
 			{
@@ -327,14 +589,76 @@ describe('handleActiveEditorChange', () => {
 		expect(__mocks.tabGroups.close).toHaveBeenCalledTimes(1);
 
 		const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
-		expect(executed).toContain('workbench.action.unlockEditorGroup');
-		expect(executed).not.toContain('workbench.action.moveEditorToFirstGroup');
-	});
+			expect(executed).toContain('workbench.action.unlockEditorGroup');
+			expect(executed).not.toContain('workbench.action.moveEditorToFirstGroup');
+		});
 
-	it('moves newly opened right-side editor to the left during split mode and restores the pinned right editor', async () => {
-		setConfigValues({
-			enableAutoPreview: true,
-			closePreviewOnNonMarkdown: true,
+		it('does not restore focus to a closed third group when consolidating editor groups', async () => {
+			setConfigValues({
+				enableAutoPreview: true,
+				closePreviewOnNonMarkdown: true,
+				alwaysOpenInPrimaryEditor: true,
+			});
+			const left = createTextEditor('/left.ts', 'typescript', ViewColumn.One);
+			const right = createTextEditor('/right.ts', 'typescript', ViewColumn.Two);
+			const extra = createTextEditor('/extra.ts', 'typescript', ViewColumn.Three);
+			__mocks.window.visibleTextEditors = [left, right, extra] as any;
+			__mocks.window.activeTextEditor = extra as any;
+			__mocks.tabGroups.activeTabGroup = { viewColumn: ViewColumn.Three } as any;
+			__mocks.tabGroups.all = [
+				{
+					tabs: [{ input: new TabInputText(Uri.file('/left.ts')) }],
+					viewColumn: ViewColumn.One,
+				},
+				{
+					tabs: [{ input: new TabInputText(Uri.file('/right.ts')) }],
+					viewColumn: ViewColumn.Two,
+				},
+				{
+					tabs: [{ input: new TabInputText(Uri.file('/extra.ts')) }],
+					viewColumn: ViewColumn.Three,
+				},
+			] as any;
+
+			__mocks.commands.executeCommand.mockImplementation(async (command: string) => {
+				if (command === 'workbench.action.focusFirstEditorGroup') {
+					__mocks.tabGroups.activeTabGroup = { viewColumn: ViewColumn.One } as any;
+					return undefined as any;
+				}
+				if (command === 'workbench.action.focusSecondEditorGroup') {
+					__mocks.tabGroups.activeTabGroup = { viewColumn: ViewColumn.Two } as any;
+					return undefined as any;
+				}
+				if (command === 'workbench.action.focusThirdEditorGroup') {
+					__mocks.tabGroups.activeTabGroup = { viewColumn: ViewColumn.Three } as any;
+					return undefined as any;
+				}
+				if (command === 'workbench.action.closeEditorsAndGroup') {
+					const closing = (__mocks.tabGroups.activeTabGroup?.viewColumn ?? ViewColumn.One) as ViewColumnValue;
+					__mocks.tabGroups.all = __mocks.tabGroups.all.filter((group: any) => group.viewColumn !== closing);
+					__mocks.window.visibleTextEditors = __mocks.window.visibleTextEditors.filter(
+						(editor: any) => editor.viewColumn !== closing,
+					);
+					__mocks.window.activeTextEditor = __mocks.window.visibleTextEditors[1] ?? __mocks.window.visibleTextEditors[0];
+					__mocks.tabGroups.activeTabGroup = {
+						viewColumn: __mocks.window.activeTextEditor?.viewColumn ?? ViewColumn.One,
+					} as any;
+					return undefined as any;
+				}
+				return undefined as any;
+			});
+
+			await __updateSplitModeStateFromVisibleEditorsForTest(__mocks.window.visibleTextEditors as any);
+
+			const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+			expect(executed).toContain('workbench.action.closeEditorsAndGroup');
+			expect(__mocks.window.showTextDocument).not.toHaveBeenCalled();
+		});
+
+		it('moves newly opened right-side editor to the left during split mode and restores the pinned right editor', async () => {
+			setConfigValues({
+				enableAutoPreview: true,
+				closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
 		});
 		setSplitMode(true);
