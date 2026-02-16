@@ -1013,8 +1013,11 @@ const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): 
 		return;
 	}
 
-	// Close stale preview before opening a new one to avoid cascading groups.
-	await closeMarkdownPreviewIfExists();
+	// If a preview tab already exists, just update it in place to preserve layout/sizing.
+	// Only close first when no preview tab exists to avoid cascading groups.
+	if (!findMarkdownPreviewTab()) {
+		await closeMarkdownPreviewIfExists();
+	}
 	await openPreview(primaryEditor);
 	await lockPreviewGroupIfNeeded(settings.alwaysOpenInPrimaryEditor, primaryEditor);
 };
