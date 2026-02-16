@@ -22,10 +22,14 @@ A Visual Studio Code extension that automatically opens the Markdown preview whe
 To use a third-party preview extension like **Markdown Preview Enhanced**, add this to your `settings.json`:
 
 ```json
-"auto-markdown-preview-lock.previewCommand": "markdown-preview-enhanced.openPreviewToTheSide"
+"auto-markdown-preview-lock.previewCommand": "markdown-preview-enhanced.openPreviewToTheSide",
+"auto-markdown-preview-lock.previewViewType": "markdown-preview-enhanced"
 ```
 
-The default value is `markdown.showPreviewToSide` (the built-in VS Code Markdown preview).
+| Setting | Default | Description |
+| --- | --- | --- |
+| `auto-markdown-preview-lock.previewCommand` | `markdown.showPreviewToSide` | The command ID used to open the preview. |
+| `auto-markdown-preview-lock.previewViewType` | `markdown.preview` | The webview viewType used to identify the preview tab. |
 
 ## Privacy / Telemetry
 

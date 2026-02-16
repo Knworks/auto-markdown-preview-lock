@@ -333,16 +333,9 @@ const isMarkdownPreviewTab = (tab: vscode.Tab): boolean => {
 		return false;
 	}
 	const viewType = tab.input.viewType.toLowerCase();
-	if (viewType.includes('markdown.preview')) {
-		return true;
-	}
-	// Support third-party preview extensions like Markdown Preview Enhanced.
 	const config = vscode.workspace.getConfiguration('auto-markdown-preview-lock');
-	const customCommand = config.get<string>('previewCommand') || '';
-	if (customCommand.startsWith('markdown-preview-enhanced.')) {
-		return viewType.includes('markdown-preview-enhanced');
-	}
-	return false;
+	const configuredViewType = (config.get<string>('previewViewType') || 'markdown.preview').toLowerCase();
+	return viewType.includes(configuredViewType);
 };
 
 const findMarkdownPreviewTab = (): { tab: vscode.Tab; group: vscode.TabGroup } | undefined => {

@@ -47,6 +47,11 @@
           "type": "string",
           "default": "markdown.showPreviewToSide",
           "description": "The command ID used to open the Markdown preview. Change this to 'markdown-preview-enhanced.openPreviewToTheSide' for Markdown Preview Enhanced."
+        },
+        "auto-markdown-preview-lock.previewViewType": {
+          "type": "string",
+          "default": "markdown.preview",
+          "description": "The webview viewType used to identify the preview tab. Change this to 'markdown-preview-enhanced' for Markdown Preview Enhanced."
         }
       }
     }
