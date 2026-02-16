@@ -46,7 +46,7 @@
         "auto-markdown-preview-lock.previewCommand": {
           "type": "string",
           "default": "markdown.showPreviewToSide",
-          "description": "The command ID used to open the Markdown preview. Change this to 'markdown-preview-enhanced.openPreview' for Markdown Preview Enhanced."
+          "description": "The command ID used to open the Markdown preview. Change this to 'markdown-preview-enhanced.openPreviewToTheSide' for Markdown Preview Enhanced."
         }
       }
     }
