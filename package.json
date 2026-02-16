@@ -42,6 +42,11 @@
           "scope": "resource",
           "description": "Automatically close markdown preview when a non-markdown editor becomes active.",
           "order": 3
+        },
+        "auto-markdown-preview-lock.previewCommand": {
+          "type": "string",
+          "default": "markdown.showPreviewToSide",
+          "description": "The command ID used to open the Markdown preview. Change this to 'markdown-preview-enhanced.openPreview' for Markdown Preview Enhanced."
         }
       }
     }
