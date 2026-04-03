@@ -4,12 +4,14 @@ export type AutoMdPreviewConfig = {
 	enableAutoPreview: boolean;
 	closePreviewOnNonMarkdown: boolean;
 	alwaysOpenInPrimaryEditor: boolean;
+	openPreviewCommand: string;
 };
 
 export const DEFAULT_CONFIG: AutoMdPreviewConfig = {
 	enableAutoPreview: true,
 	closePreviewOnNonMarkdown: true,
 	alwaysOpenInPrimaryEditor: true,
+	openPreviewCommand: "markdown.showPreviewToSide",
 };
 
 
@@ -36,5 +38,6 @@ export const getAutoMdPreviewConfig = (): AutoMdPreviewConfig => {
 			'alwaysOpenInPrimaryEditor',
 			DEFAULT_CONFIG.alwaysOpenInPrimaryEditor,
 		),
+		openPreviewCommand: read<string>(config, 'openPreviewCommand', DEFAULT_CONFIG.openPreviewCommand),
 	};
 };

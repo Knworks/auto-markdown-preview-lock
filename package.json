@@ -42,6 +42,13 @@
           "scope": "resource",
           "description": "Automatically close markdown preview when a non-markdown editor becomes active.",
           "order": 3
+        },
+        "autoMdPreview.openPreviewCommand": {
+          "type": "openPreviewCommand",
+          "default": "markdown.showPreviewToSide",
+          "scope": "resource",
+          "description": "The command to be used to open the markdown preview.",
+          "order": 4
         }
       }
     }
