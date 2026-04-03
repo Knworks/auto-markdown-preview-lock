@@ -331,7 +331,7 @@ const isMarkdownPreviewTab = (tab: vscode.Tab): boolean => {
 		return false;
 	}
 	const viewType = tab.input.viewType.toLowerCase();
-	return viewType.includes('markdown.preview');
+	return viewType.includes('markdown') && viewType.includes('preview');
 };
 
 const findMarkdownPreviewTab = (): { tab: vscode.Tab; group: vscode.TabGroup } | undefined => {
