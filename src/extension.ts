@@ -183,7 +183,7 @@ const focusCommandForViewColumn = (viewColumn: vscode.ViewColumn | undefined): s
 
 const openPreview = async (editor: vscode.TextEditor): Promise<void> => {
 	try {
-		await executeCommandSafely('markdown.showPreviewToSide', [editor.document.uri]);
+		await executeCommandSafely(getAutoMdPreviewConfig().openPreviewCommand, [editor.document.uri]);
 		setCurrentPreviewUri(editor.document.uri);
 		const previewTab = findMarkdownPreviewTab();
 		setLastPreviewGroupViewColumn(previewTab?.group.viewColumn as vscode.ViewColumn | undefined);
