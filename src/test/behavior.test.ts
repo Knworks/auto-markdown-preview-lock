@@ -74,6 +74,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		__mocks.tabGroups.activeTabGroup = { viewColumn: ViewColumn.Five } as any;
 		__mocks.tabGroups.all = [
@@ -96,6 +97,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		__mocks.tabGroups.activeTabGroup = { viewColumn: ViewColumn.One } as any;
 		__mocks.tabGroups.all = [
@@ -123,6 +125,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		const editor = createTextEditor('/a.md', 'markdown', ViewColumn.One);
 		// prime state and tab
@@ -144,6 +147,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		const editor = createTextEditor('/a.md', 'markdown', ViewColumn.One);
 		// Preview exists (to simulate locking path).
@@ -181,6 +185,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		const editor = createTextEditor('/a.md', 'markdown', ViewColumn.One);
 		// Preview exists on the right (group 2).
@@ -215,6 +220,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		setPreviewLocked(true);
 		setLockedPreviewGroupViewColumn(ViewColumn.Two as any);
@@ -380,6 +386,7 @@ describe('handleActiveEditorChange', () => {
 				enableAutoPreview: true,
 				closePreviewOnNonMarkdown: true,
 				alwaysOpenInPrimaryEditor: true,
+				openPreviewCommand: "markdown.showPreviewToSide",
 			});
 			setPreviewLocked(true);
 			setLockedPreviewGroupViewColumn(ViewColumn.Two as any);
@@ -414,6 +421,7 @@ describe('handleActiveEditorChange', () => {
 				enableAutoPreview: true,
 				closePreviewOnNonMarkdown: true,
 				alwaysOpenInPrimaryEditor: true,
+				openPreviewCommand: "markdown.showPreviewToSide",
 			});
 
 			const previewTab = { input: new TabInputWebview('vscode.markdown.preview.editor') } as any;
@@ -454,6 +462,7 @@ describe('handleActiveEditorChange', () => {
 				enableAutoPreview: true,
 				closePreviewOnNonMarkdown: true,
 				alwaysOpenInPrimaryEditor: true,
+				openPreviewCommand: "markdown.showPreviewToSide",
 			});
 			__mocks.tabGroups.all = [
 				{
@@ -476,6 +485,7 @@ describe('handleActiveEditorChange', () => {
 				enableAutoPreview: true,
 				closePreviewOnNonMarkdown: true,
 				alwaysOpenInPrimaryEditor: true,
+				openPreviewCommand: "markdown.showPreviewToSide",
 			});
 			setSplitMode(true);
 
@@ -545,6 +555,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		const mdEditor = createTextEditor('/a.md', 'markdown', ViewColumn.One);
 		await __handleActiveEditorChangeForTest(mdEditor);
@@ -570,6 +581,7 @@ describe('handleActiveEditorChange', () => {
 				enableAutoPreview: true,
 				closePreviewOnNonMarkdown: false,
 				alwaysOpenInPrimaryEditor: true,
+				openPreviewCommand: "markdown.showPreviewToSide",
 			});
 		// Simulate a locked preview on the right.
 		__mocks.tabGroups.all = [
@@ -598,6 +610,7 @@ describe('handleActiveEditorChange', () => {
 				enableAutoPreview: true,
 				closePreviewOnNonMarkdown: true,
 				alwaysOpenInPrimaryEditor: true,
+				openPreviewCommand: "markdown.showPreviewToSide",
 			});
 			const left = createTextEditor('/left.ts', 'typescript', ViewColumn.One);
 			const right = createTextEditor('/right.ts', 'typescript', ViewColumn.Two);
@@ -660,6 +673,7 @@ describe('handleActiveEditorChange', () => {
 				enableAutoPreview: true,
 				closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		setSplitMode(true);
 		setSplitPinnedRightUri(Uri.file('/right.ts'));
@@ -701,6 +715,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		setSplitMode(true);
 		setSplitPinnedRightUri(Uri.file('/right.ts'));
@@ -734,6 +749,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		setSplitMode(true);
 		setSplitPinnedRightUri(Uri.file('/right.ts'));
@@ -767,6 +783,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		setSplitMode(true);
 		setSplitPinnedRightUri(Uri.file('/right.ts'));
@@ -784,6 +801,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		setSplitMode(true);
 		setSplitPinnedRightUri(Uri.file('/right.ts'));
@@ -814,6 +832,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: false,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		const editor = createTextEditor('/a.md', 'markdown', ViewColumn.Two);
 		await __handleActiveEditorChangeForTest(editor);
@@ -827,6 +846,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: false,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		const editor = createTextEditor('/a.md', 'markdown', ViewColumn.One);
 		await __handleActiveEditorChangeForTest(editor);
@@ -838,6 +858,7 @@ describe('handleActiveEditorChange', () => {
 				enableAutoPreview: true,
 				closePreviewOnNonMarkdown: true,
 				alwaysOpenInPrimaryEditor: true,
+				openPreviewCommand: "markdown.showPreviewToSide",
 			});
 			__mocks.tabGroups.activeTabGroup = {
 				activeTab: {
@@ -862,6 +883,7 @@ describe('handleActiveEditorChange', () => {
 				enableAutoPreview: true,
 				closePreviewOnNonMarkdown: true,
 				alwaysOpenInPrimaryEditor: true,
+				openPreviewCommand: "markdown.showPreviewToSide",
 			});
 			setSplitMode(true);
 			setSplitPinnedRightUri(Uri.file('/right.ts'));
@@ -905,6 +927,7 @@ describe('handleActiveEditorChange', () => {
 				enableAutoPreview: true,
 				closePreviewOnNonMarkdown: false,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		__mocks.tabGroups.all = [
 			{
@@ -922,6 +945,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		// existing preview
 		setCurrentPreviewUri(Uri.file('/a.md'));
@@ -944,6 +968,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		__mocks.tabGroups.all = [
 			{
@@ -964,6 +989,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		const editor = createTextEditor('/d.md', 'markdown', ViewColumn.One);
 		__setAdjustingFocusForTest(true);
@@ -977,6 +1003,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		await __handleActiveEditorChangeForTest(undefined);
 		expect(__mocks.commands.executeCommand).not.toHaveBeenCalled();
@@ -987,6 +1014,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		const editor = createTextEditor('/e.md', 'markdown', ViewColumn.One);
 		await __handleActiveEditorChangeForTest(editor);
@@ -999,6 +1027,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		setPreviewLocked(true);
 		const nonMd = createTextEditor('/f.ts', 'typescript', ViewColumn.One);
@@ -1011,6 +1040,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		__mocks.tabGroups.all = [
 			{
@@ -1028,6 +1058,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		__mocks.tabGroups.all = [
 			{
@@ -1048,6 +1079,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		// lock path
 		__mocks.window.activeTextEditor = createTextEditor('/active.ts', 'typescript', ViewColumn.One);
@@ -1074,6 +1106,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		// No preview tab; user intentionally opened non-markdown on column two.
 		// Mark previous active column as primary to simulate explicit split.
@@ -1092,6 +1125,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 	const nonMdRight = createTextEditor('/existing.ts', 'typescript', ViewColumn.Two);
 	__mocks.tabGroups.all = [
@@ -1116,6 +1150,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		const uri = Uri.file('/split.ts');
 		// Prime state to mark user split for this document.
@@ -1160,6 +1195,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		// Mark prior activity so the first right-side open is treated as a user split.
 		setLastActiveKind('non-markdown');
@@ -1187,6 +1223,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		// Simulate prior non-markdown activity on left.
 		setLastNonMarkdownPlacement(Uri.file('/old.ts'), ViewColumn.One);
@@ -1209,6 +1246,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		__mocks.workspace.isTrusted = false;
 		const editor = createTextEditor('/k.md', 'markdown', ViewColumn.One);
@@ -1222,6 +1260,7 @@ describe('handleActiveEditorChange', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		__mocks.commands.executeCommand.mockRejectedValueOnce(new Error('fail command'));
 		const editor = createTextEditor('/l.md', 'markdown', ViewColumn.One);
