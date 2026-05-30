@@ -1,7 +1,8 @@
 # Change Log
+
 ## [1.0.4]
 
-- Added a conifg option for what command to run to open preview.
+- Added a config option for what command to run to open preview.
 
 ## [1.0.3]
 

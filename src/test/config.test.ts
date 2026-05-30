@@ -26,7 +26,7 @@ describe('config getAutoMdPreviewConfig', () => {
 			enableAutoPreview: false,
 			closePreviewOnNonMarkdown: false,
 			alwaysOpenInPrimaryEditor: false,
-			openPreviewCommand: config.openPreviewCommand,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 	});
 

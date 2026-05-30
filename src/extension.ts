@@ -136,7 +136,6 @@ const handleDocumentClose = (document: vscode.TextDocument): void => {
 		setLastNonMarkdownPlacement(undefined, undefined);
 	}
 
-	setLastActiveKind('markdown');
 	setLastActiveColumn(undefined);
 	lastHandledKey = undefined;
 	lastHandledAt = 0;
@@ -745,7 +744,7 @@ const handleTabsChange = async (event: vscode.TabChangeEvent): Promise<void> => 
 	} finally {
 		lastTextTabCountsByViewColumn = computeTextTabCountsByViewColumn();
 	}
-};;;
+};
 
 const ensureEditorInPrimaryColumn = async (
 	editor: vscode.TextEditor,
@@ -1041,10 +1040,15 @@ export function activate(context: vscode.ExtensionContext) {
 export function deactivate() {}
 
 // Export for unit tests.
+/** @internal */
 export const __handleActiveEditorChangeForTest = handleActiveEditorChange;
+/** @internal */
 export const __handleDocumentCloseForTest = handleDocumentClose;
+/** @internal */
 export const __handleTabsChangeForTest = handleTabsChange;
+/** @internal */
 export const __updateSplitModeStateFromVisibleEditorsForTest = updateSplitModeStateFromVisibleEditors;
+/** @internal */
 export const __resetInternalStateForTest = () => {
 	isAdjustingFocus = false;
 	trustWarningShown = false;
@@ -1063,7 +1067,8 @@ export const __resetInternalStateForTest = () => {
 		clearTimeout(splitExitTimer);
 		splitExitTimer = undefined;
 	}
-};;
+};
+/** @internal */
 export const __setAdjustingFocusForTest = (value: boolean) => {
 	isAdjustingFocus = value;
 };

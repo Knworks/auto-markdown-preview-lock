@@ -98,6 +98,9 @@ export default {
 	window,
 	workspace,
 	Uri,
+	TabInputText,
+	TabInputTextDiff,
 	TabInputWebview,
+	tabGroups,
 	ViewColumn,
 };
