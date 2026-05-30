@@ -60,3 +60,18 @@ export const setWorkspaceConfig = async (key: string, value: unknown): Promise<v
 	const config = vscode.workspace.getConfiguration('autoMdPreview');
 	await config.update(key, value, vscode.ConfigurationTarget.Workspace);
 };
+
+/** Pause execution for the given number of milliseconds. */
+export const sleep = (ms: number): Promise<void> =>
+	new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Returns true if the given editor group column contains at least one text-editor tab
+ * (i.e. a TabInputText entry — WebView preview tabs are excluded).
+ */
+export const hasTextEditorInColumn = (viewColumn: vscode.ViewColumn): boolean => {
+	const group = vscode.window.tabGroups.all.find(
+		(g) => (g.viewColumn as vscode.ViewColumn | undefined) === viewColumn,
+	);
+	return group?.tabs.some((t) => t.input instanceof vscode.TabInputText) ?? false;
+};
