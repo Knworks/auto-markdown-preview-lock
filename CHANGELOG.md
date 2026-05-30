@@ -6,7 +6,8 @@
 
 Fixed
 
-- prevent stray editor in preview column during lock race condition
+- prevent stray editor in preview column during lock race condition.
+- prevent infinite loop caused by concurrent openPreview during command flight.
 
 ## [1.0.3]
 

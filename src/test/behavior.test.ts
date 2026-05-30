@@ -128,8 +128,9 @@ describe('handleActiveEditorChange', () => {
 			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		const editor = createTextEditor('/a.md', 'markdown', ViewColumn.One);
-		// prime state and tab
+		// prime state and tab (reflect real post-lock state: preview open AND locked)
 		setCurrentPreviewUri(editor.document.uri);
+		setPreviewLocked(true);
 		__mocks.tabGroups.all = [
 			{
 				tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
@@ -138,7 +139,7 @@ describe('handleActiveEditorChange', () => {
 		] as any;
 
 		await __handleActiveEditorChangeForTest(editor);
-		// No new calls since preview already tracked
+		// No new calls since preview already tracked and locked
 		expect(__mocks.commands.executeCommand).not.toHaveBeenCalled();
 	});
 

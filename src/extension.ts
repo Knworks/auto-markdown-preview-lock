@@ -181,6 +181,11 @@ const focusCommandForViewColumn = (viewColumn: vscode.ViewColumn | undefined): s
 };
 
 const openPreview = async (editor: vscode.TextEditor): Promise<void> => {
+	// Guard the entire openPreview operation to prevent concurrent handleActiveEditorChange calls
+	// from re-entering while the preview command is in flight (up to COMMAND_TIMEOUT_MS = 300ms).
+	// Without this guard, a concurrent handler can observe findMarkdownPreviewTab() = null
+	// (tabGroups not yet updated) and issue another openPreview, causing a cascade.
+	isAdjustingFocus = true;
 	try {
 		await executeCommandSafely(getAutoMdPreviewConfig().openPreviewCommand, [editor.document.uri]);
 		setCurrentPreviewUri(editor.document.uri);
@@ -195,6 +200,8 @@ const openPreview = async (editor: vscode.TextEditor): Promise<void> => {
 	} catch (error) {
 		/* c8 ignore next */
 		logError('failed to open preview:', error);
+	} finally {
+		isAdjustingFocus = false;
 	}
 };
 
@@ -339,6 +346,11 @@ const unlockPreviewGroupIfNeeded = async (
 
 const isMarkdownEditor = (editor: vscode.TextEditor | undefined): boolean => {
 	return !!editor && editor.document.languageId === MARKDOWN_LANGUAGE_ID;
+};
+
+const isMarkdownUri = (uri: vscode.Uri): boolean => {
+	const lower = uri.path.toLowerCase();
+	return lower.endsWith('.md') || lower.endsWith('.markdown');
 };
 
 const isMarkdownPreviewTab = (tab: vscode.Tab): boolean => {
@@ -1017,10 +1029,14 @@ const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): 
 	}
 
 	// Skip reopening if we are already previewing the same document and the tab is present.
+	// If the preview is unlocked (e.g. after stray recovery), proceed to re-lock without reopening.
 	if (
 		updatedState.currentPreviewUri?.toString() === primaryEditor.document.uri.toString() &&
 		findMarkdownPreviewTab()
 	) {
+		if (settings.alwaysOpenInPrimaryEditor && !updatedState.isPreviewLocked) {
+			await lockPreviewGroupIfNeeded(settings.alwaysOpenInPrimaryEditor, primaryEditor);
+		}
 		return;
 	}
 
@@ -1039,14 +1055,30 @@ const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): 
 			if (strayTab && previewCol) {
 				await unlockPreviewGroupIfNeeded(getPreviewState(), primaryEditor);
 				const strayUri = (strayTab.input as vscode.TabInputText).uri;
-				lastHandledKey = undefined;
-				lastHandledAt = 0;
-				const strayEditor = await vscode.window.showTextDocument(strayUri, {
-					viewColumn: previewCol,
-					preserveFocus: false,
-					preview: false,
-				});
-				await handleActiveEditorChange(strayEditor);
+				if (isMarkdownUri(strayUri)) {
+					// Markdown stray: move silently to col1 to avoid triggering openPreview again
+					// (which would overwrite currentPreviewUri and cause an open/close oscillation).
+					isAdjustingFocus = true;
+					try {
+						await vscode.window.showTextDocument(strayUri, {
+							viewColumn: vscode.ViewColumn.One,
+							preserveFocus: false,
+							preview: false,
+						});
+					} finally {
+						isAdjustingFocus = false;
+					}
+				} else {
+					// Non-markdown stray: route through handleActiveEditorChange to fully update state.
+					lastHandledKey = undefined;
+					lastHandledAt = 0;
+					const strayEditor = await vscode.window.showTextDocument(strayUri, {
+						viewColumn: previewCol,
+						preserveFocus: false,
+						preview: false,
+					});
+					await handleActiveEditorChange(strayEditor);
+				}
 			}
 		}
 	}
