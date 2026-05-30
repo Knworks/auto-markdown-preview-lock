@@ -219,6 +219,10 @@ const lockPreviewGroupIfNeeded = async (
 	}
 	const focusCommand = focusCommandForViewColumn(targetColumn);
 
+	// Prevent concurrent handleActiveEditorChange calls while we focus and lock the preview group.
+	// Without this guard, a file opened during the focus→lock window can land in Column 2 and
+	// the concurrent handler and this lock operation interfere with each other.
+	isAdjustingFocus = true;
 	try {
 		if (!focusCommand) {
 			setPreviewLocked(false);
@@ -227,6 +231,16 @@ const lockPreviewGroupIfNeeded = async (
 		const focused = await executeCommandSafely(focusCommand);
 		const activeGroupColumn = vscode.window.tabGroups.activeTabGroup?.viewColumn as vscode.ViewColumn | undefined;
 		if (!focused || activeGroupColumn !== targetColumn) {
+			setPreviewLocked(false);
+			return;
+		}
+
+		// Abort if a text editor appeared in the preview group during the focus operation.
+		// The post-lock stray-tab cleanup in handleActiveEditorChange will handle it.
+		const targetGroup = vscode.window.tabGroups.all.find(
+			(g) => (g.viewColumn as vscode.ViewColumn | undefined) === targetColumn,
+		);
+		if (targetGroup?.tabs.some((t) => t.input instanceof vscode.TabInputText)) {
 			setPreviewLocked(false);
 			return;
 		}
@@ -255,6 +269,8 @@ const lockPreviewGroupIfNeeded = async (
 		if (fallbackEditor.viewColumn === vscode.ViewColumn.One || fallbackEditor.viewColumn === undefined) {
 			await executeCommandSafely('workbench.action.unlockEditorGroup');
 		}
+		// Release the guard only after fully restoring focus so subsequent events are processed correctly.
+		isAdjustingFocus = false;
 	}
 };
 
@@ -1012,6 +1028,28 @@ const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): 
 	await closeMarkdownPreviewIfExists();
 	await openPreview(primaryEditor);
 	await lockPreviewGroupIfNeeded(settings.alwaysOpenInPrimaryEditor, primaryEditor);
+
+	// Post-lock: a text editor may have slipped into the preview column during the
+	// focus→lock window (race condition). Detect and move it to the primary column.
+	if (settings.alwaysOpenInPrimaryEditor) {
+		const previewEntry = findMarkdownPreviewTab();
+		if (previewEntry) {
+			const previewCol = previewEntry.group.viewColumn as vscode.ViewColumn | undefined;
+			const strayTab = previewEntry.group.tabs.find((t) => t.input instanceof vscode.TabInputText);
+			if (strayTab && previewCol) {
+				await unlockPreviewGroupIfNeeded(getPreviewState(), primaryEditor);
+				const strayUri = (strayTab.input as vscode.TabInputText).uri;
+				lastHandledKey = undefined;
+				lastHandledAt = 0;
+				const strayEditor = await vscode.window.showTextDocument(strayUri, {
+					viewColumn: previewCol,
+					preserveFocus: false,
+					preview: false,
+				});
+				await handleActiveEditorChange(strayEditor);
+			}
+		}
+	}
 };
 
 /* c8 ignore next 20 */

@@ -4,6 +4,10 @@
 
 - Added a config option for what command to run to open preview.
 
+Fixed
+
+- prevent stray editor in preview column during lock race condition
+
 ## [1.0.3]
 
 - Fixed an issue where side-by-side display was not possible.
