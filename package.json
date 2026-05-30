@@ -44,7 +44,7 @@
           "order": 3
         },
         "autoMdPreview.openPreviewCommand": {
-          "type": "openPreviewCommand",
+          "type": "string",
           "default": "markdown.showPreviewToSide",
           "scope": "resource",
           "description": "The command to be used to open the markdown preview.",
