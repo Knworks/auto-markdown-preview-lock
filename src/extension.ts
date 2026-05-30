@@ -547,6 +547,10 @@ const closeAllEmptyNonPrimaryGroups = async (): Promise<void> => {
 const updateSplitModeStateFromVisibleEditors = async (
 	editors: readonly vscode.TextEditor[] = vscode.window.visibleTextEditors,
 ): Promise<void> => {
+	// Don't change split/preview state while handleActiveEditorChange is mid-operation.
+	if (isAdjustingFocus) {
+		return;
+	}
 	const isSplitMode = computeIsSplitModeNow(editors);
 	const previous = getPreviewState();
 	if (previous.isSplitMode && !isSplitMode) {
@@ -618,6 +622,12 @@ const handleTabsChange = async (event: vscode.TabChangeEvent): Promise<void> => 
 			return;
 		}
 		if (isClosingPreviewProgrammatically) {
+			return;
+		}
+		// Defer tab-change side-effects while handleActiveEditorChange is managing focus/preview.
+		// Without this guard, handleTabsChange could close a freshly-opened preview (before tabGroups
+		// is fully updated), corrupting state and potentially causing a preview reopen cascade.
+		if (isAdjustingFocus) {
 			return;
 		}
 		const state = getPreviewState();
