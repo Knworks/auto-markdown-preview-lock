@@ -34,6 +34,7 @@ let closeBurstTextClosedCount = 0;
 let closeBurstLastAt = 0;
 let lastTextTabCountsByViewColumn: Map<vscode.ViewColumn, number> | undefined;
 const userSplitNonMarkdownKeys = new Set<string>();
+let pendingEditorChange: { value: vscode.TextEditor | undefined } | undefined;
 
 const isPrimaryColumn = (column: vscode.ViewColumn | undefined): boolean =>
 	column === vscode.ViewColumn.One || column === undefined;
@@ -187,10 +188,17 @@ const openPreview = async (editor: vscode.TextEditor): Promise<void> => {
 	// (tabGroups not yet updated) and issue another openPreview, causing a cascade.
 	isAdjustingFocus = true;
 	try {
-		await executeCommandSafely(getAutoMdPreviewConfig().openPreviewCommand, [editor.document.uri]);
+		// Pre-seed preview state before the command fires so that split-mode detection
+		// excludes the preview column even during the cold-start WebView load window.
+		// showPreviewToSide always opens to the right of Col1, which is Col2 in our layout.
 		setCurrentPreviewUri(editor.document.uri);
+		setLastPreviewGroupViewColumn(vscode.ViewColumn.Two);
+		await executeCommandSafely(getAutoMdPreviewConfig().openPreviewCommand, [editor.document.uri]);
+		// Update with the actual tab column once the command completes.
 		const previewTab = findMarkdownPreviewTab();
-		setLastPreviewGroupViewColumn(previewTab?.group.viewColumn as vscode.ViewColumn | undefined);
+		if (previewTab) {
+			setLastPreviewGroupViewColumn(previewTab.group.viewColumn as vscode.ViewColumn | undefined);
+		}
 		// Ensure the text editor retains focus after opening preview.
 		await vscode.window.showTextDocument(editor.document, {
 			viewColumn: editor.viewColumn,
@@ -348,11 +356,6 @@ const isMarkdownEditor = (editor: vscode.TextEditor | undefined): boolean => {
 	return !!editor && editor.document.languageId === MARKDOWN_LANGUAGE_ID;
 };
 
-const isMarkdownUri = (uri: vscode.Uri): boolean => {
-	const lower = uri.path.toLowerCase();
-	return lower.endsWith('.md') || lower.endsWith('.markdown');
-};
-
 const isMarkdownPreviewTab = (tab: vscode.Tab): boolean => {
 	if (!(tab.input instanceof vscode.TabInputWebview)) {
 		return false;
@@ -415,21 +418,22 @@ const closeMarkdownPreviewIfExists = async (): Promise<void> => {
 
 const computeIsSplitModeFromVisibleEditors = (
 	editors: readonly vscode.TextEditor[] = vscode.window.visibleTextEditors,
+	excludeColumn?: vscode.ViewColumn,
 ): boolean => {
 	const columns = new Set<number>();
 	for (const editor of editors) {
-		if (editor.viewColumn !== undefined) {
+		if (editor.viewColumn !== undefined && editor.viewColumn !== excludeColumn) {
 			columns.add(editor.viewColumn);
 		}
 	}
 	return columns.size >= 2;
 };
 
-const computeIsSplitModeFromTabGroups = (): boolean => {
+const computeIsSplitModeFromTabGroups = (excludeColumn?: vscode.ViewColumn): boolean => {
 	const columns = new Set<number>();
 	for (const group of vscode.window.tabGroups.all) {
 		const viewColumn = group.viewColumn;
-		if (!viewColumn) {
+		if (!viewColumn || viewColumn === excludeColumn) {
 			continue;
 		}
 		const hasTextTab = group.tabs.some(
@@ -442,8 +446,33 @@ const computeIsSplitModeFromTabGroups = (): boolean => {
 	return columns.size >= 2;
 };
 
-const computeIsSplitModeNow = (editors: readonly vscode.TextEditor[] = vscode.window.visibleTextEditors): boolean =>
-	computeIsSplitModeFromVisibleEditors(editors) || computeIsSplitModeFromTabGroups();
+// When the preview is unlocked, any text editor in the preview column is a stray (it slipped in
+// during the focus→lock race window) rather than an intentional split.  Exclude the preview column
+// from split-mode counting so the stray is moved back to Col1 instead of triggering split mode.
+const getPreviewColumnToExclude = (): vscode.ViewColumn | undefined => {
+	const state = getPreviewState();
+	if (state.isPreviewLocked) {
+		return undefined;
+	}
+	// Use the actual preview tab column when the WebView is already visible.
+	const previewColumn = findMarkdownPreviewTab()?.group.viewColumn as vscode.ViewColumn | undefined;
+	if (previewColumn !== undefined) {
+		return previewColumn;
+	}
+	// Cold-start: the WebView tab may not have appeared yet, but we know a preview was
+	// requested (currentPreviewUri is set).  Fall back to lastPreviewGroupViewColumn so
+	// that editors opening in Col2 during the load window are treated as strays rather
+	// than triggering a false split-mode detection.
+	if (state.currentPreviewUri) {
+		return state.lastPreviewGroupViewColumn;
+	}
+	return undefined;
+};
+
+const computeIsSplitModeNow = (editors: readonly vscode.TextEditor[] = vscode.window.visibleTextEditors): boolean => {
+	const excludeColumn = getPreviewColumnToExclude();
+	return computeIsSplitModeFromVisibleEditors(editors, excludeColumn) || computeIsSplitModeFromTabGroups(excludeColumn);
+};
 
 const visibleTextEditorColumns = (
 	editors: readonly vscode.TextEditor[] = vscode.window.visibleTextEditors,
@@ -827,10 +856,7 @@ const ensureEditorInPrimaryColumn = async (
 	}
 };
 
-const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): Promise<void> => {
-	if (isAdjustingFocus) {
-		return;
-	}
+const handleActiveEditorChangeImpl = async (editor: vscode.TextEditor | undefined): Promise<void> => {
 	const now = Date.now();
 	const activeTab = vscode.window.tabGroups.activeTabGroup?.activeTab;
 	if (isDiffTab(activeTab)) {
@@ -873,8 +899,25 @@ const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): 
 
 	const settings = getAutoMdPreviewConfig();
 
-	// If focus moves to a webview or nowhere, do nothing to avoid closing the preview we just opened.
+	// If focus moves to a webview or nowhere (e.g., the markdown preview webview becomes active),
+	// normally we do nothing.  However, on the very first preview load, markdown.showPreviewToSide
+	// can take longer than COMMAND_TIMEOUT_MS.  In that case lockPreviewGroupIfNeeded finds no tab
+	// and returns without locking.  When the webview later fires this event we opportunistically
+	// lock so that the next Explorer click lands in Col1 instead of the unlocked Col2.
 	if (!editor) {
+		const state = getPreviewState();
+		if (
+			!state.isPreviewLocked &&
+			state.currentPreviewUri &&
+			settings.alwaysOpenInPrimaryEditor &&
+			settings.enableAutoPreview
+		) {
+			const previewEntry = findMarkdownPreviewTab();
+			const mdEditor = vscode.window.visibleTextEditors.find(isMarkdownEditor);
+			if (previewEntry && mdEditor) {
+				await lockPreviewGroupIfNeeded(settings.alwaysOpenInPrimaryEditor, mdEditor);
+			}
+		}
 		return;
 	}
 
@@ -1065,36 +1108,72 @@ const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): 
 			if (strayTab && previewCol) {
 				await unlockPreviewGroupIfNeeded(getPreviewState(), primaryEditor);
 				const strayUri = (strayTab.input as vscode.TabInputText).uri;
-				if (isMarkdownUri(strayUri)) {
-					// Markdown stray: move silently to col1 to avoid triggering openPreview again
-					// (which would overwrite currentPreviewUri and cause an open/close oscillation).
-					isAdjustingFocus = true;
-					try {
-						await vscode.window.showTextDocument(strayUri, {
-							viewColumn: vscode.ViewColumn.One,
-							preserveFocus: false,
-							preview: false,
-						});
-					} finally {
-						isAdjustingFocus = false;
-					}
-				} else {
-					// Non-markdown stray: route through handleActiveEditorChange to fully update state.
-					lastHandledKey = undefined;
-					lastHandledAt = 0;
-					const strayEditor = await vscode.window.showTextDocument(strayUri, {
+				// Move the stray to Col1 BEFORE routing through handleActiveEditorChange.
+					// workbench.action.moveEditorToFirstGroup moves the currently active editor.
+					// lockPreviewGroupIfNeeded restores focus to the primary column before returning,
+					// so the active editor is the primary markdown file, not the stray.  The first
+					// showTextDocument re-focuses the stray in Col2 so the move command targets it.
+				isAdjustingFocus = true;
+				let movedStrayEditor: vscode.TextEditor | undefined;
+				try {
+					await vscode.window.showTextDocument(strayUri, {
 						viewColumn: previewCol,
 						preserveFocus: false,
 						preview: false,
 					});
-					await handleActiveEditorChange(strayEditor);
+					await executeCommandSafely('workbench.action.moveEditorToFirstGroup');
+					movedStrayEditor = await vscode.window.showTextDocument(strayUri, {
+						viewColumn: vscode.ViewColumn.One,
+						preserveFocus: false,
+						preview: false,
+					});
+				} catch (error) {
+					/* c8 ignore next */
+					logError('failed to move stray editor to primary column:', error);
+				} finally {
+					isAdjustingFocus = false;
+				}
+				if (movedStrayEditor) {
+					lastHandledKey = undefined;
+					lastHandledAt = 0;
+					await handleActiveEditorChangeImpl(movedStrayEditor);
 				}
 			}
+		}
+
+		// Final safety net: if the preview still exists but is unlocked after all of the above
+		// (e.g. lock was aborted by a stray or failed for another reason, and the stray handler
+		// left it unlocked), lock it now.  Without this the unlocked preview group steals focus
+		// from VS Code's perspective, causing the next Explorer file-open to land in Col2.
+		if (!getPreviewState().isPreviewLocked && getPreviewState().currentPreviewUri && findMarkdownPreviewTab()) {
+			await lockPreviewGroupIfNeeded(settings.alwaysOpenInPrimaryEditor, primaryEditor);
 		}
 	}
 };
 
-/* c8 ignore next 20 */
+// Wrapper that queues editor-change events arriving while isAdjustingFocus is true,
+// then flushes them after the in-flight adjustment completes.  Without this, any file
+// selected during a focus/lock operation is silently dropped, leaving a stray editor
+// in Col2 that subsequent handlers cannot detect until the next user interaction.
+const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): Promise<void> => {
+	if (isAdjustingFocus) {
+		// Keep only the latest pending event; earlier ones are superseded.
+		pendingEditorChange = { value: editor };
+		return;
+	}
+	pendingEditorChange = undefined;
+	await handleActiveEditorChangeImpl(editor);
+
+	// Flush any event that was queued while isAdjustingFocus was true during the
+	// call above.  Loop in case a flush itself triggers another adjustment cycle.
+	while (pendingEditorChange !== undefined && !isAdjustingFocus) {
+		const pending = pendingEditorChange as { value: vscode.TextEditor | undefined };
+		pendingEditorChange = undefined;
+		await handleActiveEditorChangeImpl(pending.value);
+	}
+};
+
+/* c8 ignore start */
 export function activate(context: vscode.ExtensionContext) {
 	console.log('Auto Markdown Preview Lock extension activated');
 
@@ -1113,9 +1192,29 @@ export function activate(context: vscode.ExtensionContext) {
 		}),
 	);
 
-	// Handle already active editor when the extension activates.
-	void handleActiveEditorChange(vscode.window.activeTextEditor);
+	// On session restore the preview webview may have focus, making activeTextEditor undefined.
+	// Seed state from any already-open preview so that handleActiveEditorChange can lock without
+	// closing and reopening it (no flicker).
+	const startupPreview = findMarkdownPreviewTab();
+	if (startupPreview) {
+		const mdEditor = vscode.window.visibleTextEditors.find(
+			(e) => e.document.languageId === MARKDOWN_LANGUAGE_ID,
+		);
+		if (mdEditor && getAutoMdPreviewConfig().enableAutoPreview) {
+			setCurrentPreviewUri(mdEditor.document.uri);
+			setLastPreviewGroupViewColumn(startupPreview.group.viewColumn as vscode.ViewColumn | undefined);
+		}
+	}
+
+	// Fall back to a visible markdown editor when the active editor is undefined (e.g. preview
+	// webview has focus after session restore).  This ensures the preview column gets locked even
+	// when the user hasn't interacted with a text editor yet.
+	const startupEditor =
+		vscode.window.activeTextEditor ??
+		vscode.window.visibleTextEditors.find((e) => e.document.languageId === MARKDOWN_LANGUAGE_ID);
+	void handleActiveEditorChange(startupEditor);
 }
+/* c8 ignore end */
 
 export function deactivate() {}
 
@@ -1131,6 +1230,7 @@ export const __updateSplitModeStateFromVisibleEditorsForTest = updateSplitModeSt
 /** @internal */
 export const __resetInternalStateForTest = () => {
 	isAdjustingFocus = false;
+	pendingEditorChange = undefined;
 	trustWarningShown = false;
 	lastHandledKey = undefined;
 	lastHandledAt = 0;
