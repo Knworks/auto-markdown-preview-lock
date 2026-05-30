@@ -1,0 +1,15 @@
+{
+	"compilerOptions": {
+		"module": "ESNext",
+		"target": "ES2022",
+		"moduleResolution": "bundler",
+		"esModuleInterop": true,
+		"strict": true,
+		"allowJs": true,
+		"checkJs": false
+	},
+	"include": [
+		"vitest.config.ts",
+		"eslint.config.mjs"
+	]
+}
