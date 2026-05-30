@@ -4,22 +4,25 @@ export type AutoMdPreviewConfig = {
 	enableAutoPreview: boolean;
 	closePreviewOnNonMarkdown: boolean;
 	alwaysOpenInPrimaryEditor: boolean;
+	openPreviewCommand: string;
 };
 
 export const DEFAULT_CONFIG: AutoMdPreviewConfig = {
 	enableAutoPreview: true,
 	closePreviewOnNonMarkdown: true,
 	alwaysOpenInPrimaryEditor: true,
+	openPreviewCommand: "markdown.showPreviewToSide",
 };
 
-const readBoolean = (
+
+const read = <T>(
 	config: vscode.WorkspaceConfiguration,
 	key: keyof AutoMdPreviewConfig,
-	defaultValue: boolean,
-): boolean => {
+	defaultValue: T,
+): T => {
 	const value = config.get(key);
-	if (typeof value === 'boolean') {
-		return value;
+	if (typeof value === typeof defaultValue) {
+		return value as T;
 	}
 	console.warn(`[auto-markdown-preview-lock] Invalid config for ${key}, falling back to default ${defaultValue}`);
 	return defaultValue;
@@ -28,12 +31,13 @@ const readBoolean = (
 export const getAutoMdPreviewConfig = (): AutoMdPreviewConfig => {
 	const config = vscode.workspace.getConfiguration('autoMdPreview');
 	return {
-		enableAutoPreview: readBoolean(config, 'enableAutoPreview', DEFAULT_CONFIG.enableAutoPreview),
-		closePreviewOnNonMarkdown: readBoolean(config, 'closePreviewOnNonMarkdown', DEFAULT_CONFIG.closePreviewOnNonMarkdown),
-		alwaysOpenInPrimaryEditor: readBoolean(
+		enableAutoPreview: read<boolean>(config, 'enableAutoPreview', DEFAULT_CONFIG.enableAutoPreview),
+		closePreviewOnNonMarkdown: read<boolean>(config, 'closePreviewOnNonMarkdown', DEFAULT_CONFIG.closePreviewOnNonMarkdown),
+		alwaysOpenInPrimaryEditor: read<boolean>(
 			config,
 			'alwaysOpenInPrimaryEditor',
 			DEFAULT_CONFIG.alwaysOpenInPrimaryEditor,
 		),
+		openPreviewCommand: read<string>(config, 'openPreviewCommand', DEFAULT_CONFIG.openPreviewCommand),
 	};
 };

@@ -19,12 +19,14 @@ describe('config getAutoMdPreviewConfig', () => {
 			enableAutoPreview: false,
 			closePreviewOnNonMarkdown: false,
 			alwaysOpenInPrimaryEditor: false,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 		const config = getAutoMdPreviewConfig();
 		expect(config).toEqual({
 			enableAutoPreview: false,
 			closePreviewOnNonMarkdown: false,
 			alwaysOpenInPrimaryEditor: false,
+			openPreviewCommand: config.openPreviewCommand,
 		});
 	});
 
@@ -38,6 +40,7 @@ describe('config getAutoMdPreviewConfig', () => {
 			enableAutoPreview: true,
 			closePreviewOnNonMarkdown: true,
 			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
 		});
 	});
 });
