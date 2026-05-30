@@ -6,8 +6,10 @@ import {
 	resetPreviewState,
 	setCurrentPreviewUri,
 	setLastActiveKind,
+	setLockedPreviewGroupViewColumn,
 	setPreviewLocked,
 } from '../state';
+import * as vscode from 'vscode';
 
 const uri = (path: string) => ({ fsPath: path, toString: () => path } as any);
 
@@ -57,5 +59,15 @@ describe('state management', () => {
 		expect(state.currentPreviewUri).toBeUndefined();
 		expect(state.isPreviewLocked).toBe(false);
 		expect(state.lastActiveKind).toBe('non-markdown');
+	});
+
+	it('setPreviewLocked(false) clears lockedPreviewGroupViewColumn', () => {
+		setPreviewLocked(true);
+		setLockedPreviewGroupViewColumn(vscode.ViewColumn.Two);
+		expect(getPreviewState().lockedPreviewGroupViewColumn).toBe(vscode.ViewColumn.Two);
+
+		setPreviewLocked(false);
+		expect(getPreviewState().isPreviewLocked).toBe(false);
+		expect(getPreviewState().lockedPreviewGroupViewColumn).toBeUndefined();
 	});
 });

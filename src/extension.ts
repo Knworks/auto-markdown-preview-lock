@@ -108,7 +108,12 @@ const executeCommandSafely = async (
 	});
 
 	try {
-		await Promise.race([vscode.commands.executeCommand(command, ...args), timeoutPromise]);
+		// Wrap in Promise.resolve() so we get a real Promise (executeCommand returns
+		// Thenable which lacks .catch). The detached catch suppresses any unhandled
+		// rejection that would arise if the timeout wins and the command later rejects.
+		const commandPromise = Promise.resolve(vscode.commands.executeCommand(command, ...args));
+		commandPromise.catch(() => {});
+		await Promise.race([commandPromise, timeoutPromise]);
 		return true;
 	} catch (error) {
 		logWarn(`Command ${command} failed or timed out`, error);
@@ -137,9 +142,17 @@ const handleDocumentClose = (document: vscode.TextDocument): void => {
 		setLastNonMarkdownPlacement(undefined, undefined);
 	}
 
-	setLastActiveColumn(undefined);
-	lastHandledKey = undefined;
-	lastHandledAt = 0;
+	// Only reset the dedup cache and last-active-column when the closed document was
+	// actually the last active one. Resetting unconditionally would invalidate the
+	// dedup state for the still-open active editor whenever any background document
+	// is closed, causing the next active-editor-change event to bypass debouncing.
+	const docUriStr = document.uri.toString();
+	const isLastActiveDocument = lastHandledKey?.startsWith(docUriStr + '::') ?? false;
+	if (isLastActiveDocument) {
+		setLastActiveColumn(undefined);
+		lastHandledKey = undefined;
+		lastHandledAt = 0;
+	}
 };
 
 const isWorkspaceTrusted = async (): Promise<boolean> => {
@@ -188,11 +201,15 @@ const openPreview = async (editor: vscode.TextEditor): Promise<void> => {
 	// (tabGroups not yet updated) and issue another openPreview, causing a cascade.
 	isAdjustingFocus = true;
 	try {
-		// Pre-seed preview state before the command fires so that split-mode detection
-		// excludes the preview column even during the cold-start WebView load window.
-		// showPreviewToSide always opens to the right of Col1, which is Col2 in our layout.
+		// Pre-seed the expected preview column before the command fires so that
+		// getPreviewColumnToExclude() can exclude it during the cold-start window
+		// (the WebView tab may not have appeared in tabGroups yet after the command
+		// returns). The preview opens to the right of the current editor column,
+		// so column + 1 is the best available estimate. For custom openPreviewCommand
+		// values that place the preview elsewhere the post-command update below
+		// (using the actual tab column) will correct this before events process.
 		setCurrentPreviewUri(editor.document.uri);
-		setLastPreviewGroupViewColumn(vscode.ViewColumn.Two);
+		setLastPreviewGroupViewColumn(((editor.viewColumn ?? vscode.ViewColumn.One) + 1) as vscode.ViewColumn);
 		await executeCommandSafely(getAutoMdPreviewConfig().openPreviewCommand, [editor.document.uri]);
 		// Update with the actual tab column once the command completes.
 		const previewTab = findMarkdownPreviewTab();
@@ -326,6 +343,9 @@ const unlockPreviewGroupIfNeeded = async (
 	const targetColumn = target.group.viewColumn as vscode.ViewColumn | undefined;
 	const focusCommand = focusCommandForViewColumn(targetColumn);
 
+	// Guard concurrent handleActiveEditorChange calls while we focus and unlock the
+	// preview group, mirroring the same pattern used in the no-preview-tab path above.
+	isAdjustingFocus = true;
 	try {
 		if (focusCommand && targetColumn) {
 			const focused = await executeCommandSafely(focusCommand);
@@ -349,6 +369,7 @@ const unlockPreviewGroupIfNeeded = async (
 				preview: false,
 			});
 		}
+		isAdjustingFocus = false;
 	}
 };
 
@@ -1177,6 +1198,10 @@ const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): 
 export function activate(context: vscode.ExtensionContext) {
 	console.log('Auto Markdown Preview Lock extension activated');
 
+	// Seed the tab-count snapshot so that handleTabsChange can detect a "Close All"
+	// operation even when it fires as the very first tabs-change event after activation.
+	lastTextTabCountsByViewColumn = computeTextTabCountsByViewColumn();
+
 	context.subscriptions.push(
 		vscode.window.onDidChangeActiveTextEditor((editor) => {
 			void handleActiveEditorChange(editor);
@@ -1227,7 +1252,10 @@ export const __handleDocumentCloseForTest = handleDocumentClose;
 export const __handleTabsChangeForTest = handleTabsChange;
 /** @internal */
 export const __updateSplitModeStateFromVisibleEditorsForTest = updateSplitModeStateFromVisibleEditors;
-/** @internal */
+/** @internal
+ * Resets only the module-level flags in extension.ts.
+ * Must be paired with `resetAllState()` from state.ts to fully restore the initial state in tests.
+ */
 export const __resetInternalStateForTest = () => {
 	isAdjustingFocus = false;
 	pendingEditorChange = undefined;

@@ -80,13 +80,5 @@
     "mocha": "^11.1.0",
     "typescript": "^5.8.3",
     "vitest": "^4.0.15"
-  },
-  "vitest": {
-    "exclude": [
-      "dist/**",
-      "out/**",
-      "src/integration/**",
-      "**/node_modules/**"
-    ]
   }
 }
