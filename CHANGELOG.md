@@ -1,5 +1,11 @@
 # Change Log
 
+## [1.0.5]
+
+Fixed
+
+- open preview for .md files whose languageId is overridden by another extension
+
 ## [1.0.4]
 
 - Added a config option for what command to run to open preview.

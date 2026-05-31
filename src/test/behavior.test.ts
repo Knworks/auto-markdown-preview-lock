@@ -1268,4 +1268,62 @@ describe('handleActiveEditorChange', () => {
 		await __handleActiveEditorChangeForTest(editor);
 		expect(__mocks.commands.executeCommand).toHaveBeenCalled();
 	});
+
+	it('opens preview for .md file with non-markdown languageId (e.g. SKILL.md overridden by another extension)', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: true,
+			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
+		});
+		__mocks.tabGroups.all = [] as any;
+		// Simulate a .md file whose languageId was overridden by another extension
+		const editor = createTextEditor('/SKILL.md', 'github-copilot-instructions', ViewColumn.One);
+		await __handleActiveEditorChangeForTest(editor);
+		const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+		expect(executed).toContain('markdown.showPreviewToSide');
+	});
+
+	it('opens preview for copilot-instructions.md with non-markdown languageId', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: true,
+			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
+		});
+		__mocks.tabGroups.all = [] as any;
+		const editor = createTextEditor('/.github/copilot-instructions.md', 'copilot-instructions', ViewColumn.One);
+		await __handleActiveEditorChangeForTest(editor);
+		const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+		expect(executed).toContain('markdown.showPreviewToSide');
+	});
+
+	it('opens preview for *.agent.md with non-markdown languageId', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: true,
+			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
+		});
+		__mocks.tabGroups.all = [] as any;
+		const editor = createTextEditor('/my-agent.agent.md', 'copilot-agent', ViewColumn.One);
+		await __handleActiveEditorChangeForTest(editor);
+		const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+		expect(executed).toContain('markdown.showPreviewToSide');
+	});
+
+	it('opens preview for non-.md file when languageId is explicitly markdown', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: true,
+			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: "markdown.showPreviewToSide",
+		});
+		__mocks.tabGroups.all = [] as any;
+		// languageId='markdown' takes priority over file extension
+		const editor = createTextEditor('/README.txt', 'markdown', ViewColumn.One);
+		await __handleActiveEditorChangeForTest(editor);
+		const executed = __mocks.commands.executeCommand.mock.calls.map((c) => c[0]);
+		expect(executed).toContain('markdown.showPreviewToSide');
+	});
 });

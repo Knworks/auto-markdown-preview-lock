@@ -374,7 +374,17 @@ const unlockPreviewGroupIfNeeded = async (
 };
 
 const isMarkdownEditor = (editor: vscode.TextEditor | undefined): boolean => {
-	return !!editor && editor.document.languageId === MARKDOWN_LANGUAGE_ID;
+	if (!editor) {
+		return false;
+	}
+	if (editor.document.languageId === MARKDOWN_LANGUAGE_ID) {
+		return true;
+	}
+	// Fallback: some extensions (e.g. GitHub Copilot, AI agent tools) override the languageId
+	// of .md files (e.g. SKILL.md, copilot-instructions.md, *.agent.md) with a custom ID.
+	// In those cases we still treat the file as markdown based on its file extension.
+	const fsPath = editor.document.uri.fsPath.toLowerCase();
+	return fsPath.endsWith('.md') || fsPath.endsWith('.markdown');
 };
 
 const isMarkdownPreviewTab = (tab: vscode.Tab): boolean => {
