@@ -35,6 +35,8 @@ let closeBurstLastAt = 0;
 let lastTextTabCountsByViewColumn: Map<vscode.ViewColumn, number> | undefined;
 const userSplitNonMarkdownKeys = new Set<string>();
 let pendingEditorChange: { value: vscode.TextEditor | undefined } | undefined;
+let pendingTabsChange: vscode.TabChangeEvent | undefined;
+let pendingClosedTextUris: Set<string> | undefined;
 
 const isPrimaryColumn = (column: vscode.ViewColumn | undefined): boolean =>
 	column === vscode.ViewColumn.One || column === undefined;
@@ -66,6 +68,28 @@ const isSourceControlDiffTab = (tab: vscode.Tab | undefined): boolean => {
 		originalScheme === 'scm' ||
 		modifiedScheme === 'scm'
 	);
+};
+
+const isMarkdownUri = (uri: vscode.Uri): boolean => {
+	const fsPath = uri.fsPath.toLowerCase();
+	return fsPath.endsWith('.md') || fsPath.endsWith('.markdown');
+};
+
+const isMarkdownDocument = (document: vscode.TextDocument): boolean =>
+	document.languageId === MARKDOWN_LANGUAGE_ID || isMarkdownUri(document.uri);
+
+const isMarkdownSourceTab = (
+	tab: vscode.Tab,
+): tab is vscode.Tab & { input: vscode.TabInputText } => {
+	const input = tab.input;
+	if (!(input instanceof vscode.TabInputText)) {
+		return false;
+	}
+
+	const document = vscode.workspace.textDocuments.find(
+		(candidate) => candidate.uri.toString() === input.uri.toString(),
+	);
+	return document ? isMarkdownDocument(document) : isMarkdownUri(input.uri);
 };
 
 const computeTextTabCountsByViewColumn = (): Map<vscode.ViewColumn, number> => {
@@ -216,12 +240,15 @@ const openPreview = async (editor: vscode.TextEditor): Promise<void> => {
 		if (previewTab) {
 			setLastPreviewGroupViewColumn(previewTab.group.viewColumn as vscode.ViewColumn | undefined);
 		}
-		// Ensure the text editor retains focus after opening preview.
-		await vscode.window.showTextDocument(editor.document, {
-			viewColumn: editor.viewColumn,
-			preserveFocus: false,
-			preview: false,
-		});
+		// Ensure the text editor retains focus after opening preview, unless the source
+		// tab was closed while the preview command was still in flight.
+		if (findTabByUri(editor.document.uri)) {
+			await vscode.window.showTextDocument(editor.document, {
+				viewColumn: editor.viewColumn,
+				preserveFocus: false,
+				preview: false,
+			});
+		}
 	} catch (error) {
 		/* c8 ignore next */
 		logError('failed to open preview:', error);
@@ -290,7 +317,7 @@ const lockPreviewGroupIfNeeded = async (
 		logError('failed to lock preview group:', error);
 	} finally {
 		// Restore focus to the main editor.
-		if (activeBefore) {
+		if (activeBefore && findTabByUri(fallbackEditor.document.uri)) {
 			await vscode.window.showTextDocument(fallbackEditor.document, {
 				viewColumn: fallbackEditor.viewColumn,
 				preserveFocus: false,
@@ -374,17 +401,7 @@ const unlockPreviewGroupIfNeeded = async (
 };
 
 const isMarkdownEditor = (editor: vscode.TextEditor | undefined): boolean => {
-	if (!editor) {
-		return false;
-	}
-	if (editor.document.languageId === MARKDOWN_LANGUAGE_ID) {
-		return true;
-	}
-	// Fallback: some extensions (e.g. GitHub Copilot, AI agent tools) override the languageId
-	// of .md files (e.g. SKILL.md, copilot-instructions.md, *.agent.md) with a custom ID.
-	// In those cases we still treat the file as markdown based on its file extension.
-	const fsPath = editor.document.uri.fsPath.toLowerCase();
-	return fsPath.endsWith('.md') || fsPath.endsWith('.markdown');
+	return editor ? isMarkdownDocument(editor.document) : false;
 };
 
 const isMarkdownPreviewTab = (tab: vscode.Tab): boolean => {
@@ -688,9 +705,32 @@ const handleTabsChange = async (event: vscode.TabChangeEvent): Promise<void> => 
 		// Without this guard, handleTabsChange could close a freshly-opened preview (before tabGroups
 		// is fully updated), corrupting state and potentially causing a preview reopen cascade.
 		if (isAdjustingFocus) {
+			if ((event.closed ?? []).some((tab) => tab.input instanceof vscode.TabInputText)) {
+				pendingTabsChange = event;
+				pendingClosedTextUris = new Set(
+					(event.closed ?? [])
+						.map((tab) => tab.input)
+						.filter((input): input is vscode.TabInputText => input instanceof vscode.TabInputText)
+						.map((input) => input.uri.toString()),
+				);
+			}
 			return;
 		}
 		const state = getPreviewState();
+		const closedTabs = new Set(event.closed ?? []);
+		const closedTextUris = new Set(
+			(event.closed ?? [])
+				.map((tab) => tab.input)
+				.filter((input): input is vscode.TabInputText => input instanceof vscode.TabInputText)
+				.map((input) => input.uri.toString()),
+		);
+		const activeEditor = vscode.window.activeTextEditor;
+		const fallbackEditor =
+			activeEditor &&
+			!closedTextUris.has(activeEditor.document.uri.toString()) &&
+			findTabByUri(activeEditor.document.uri)
+				? activeEditor
+				: undefined;
 		const closedPreview = event.closed?.some(isMarkdownPreviewTab) ?? false;
 		if (closedPreview) {
 			const lastPreviewGroupViewColumn =
@@ -698,7 +738,6 @@ const handleTabsChange = async (event: vscode.TabChangeEvent): Promise<void> => 
 			if (state.currentPreviewUri) {
 				setSuppressAutoPreviewUri(state.currentPreviewUri);
 			}
-			const fallbackEditor = vscode.window.activeTextEditor;
 			if (fallbackEditor) {
 				await unlockPreviewGroupIfNeeded(state, fallbackEditor);
 			}
@@ -707,9 +746,19 @@ const handleTabsChange = async (event: vscode.TabChangeEvent): Promise<void> => 
 			}
 		}
 
+		const closedMarkdownSource = event.closed?.some(isMarkdownSourceTab) ?? false;
+		const closedMarkdownSourceUris = new Set(
+			(event.closed ?? []).filter(isMarkdownSourceTab).map((tab) => tab.input.uri.toString()),
+		);
+		const hasClosedMarkdownSourceTabInCurrentList = vscode.window.tabGroups.all.some((group) =>
+			group.tabs.some((tab) => closedTabs.has(tab) && isMarkdownSourceTab(tab)),
+		);
+
 		const hasAnyTextTab = vscode.window.tabGroups.all.some((group) =>
 			group.tabs.some(
-				(tab) => tab.input instanceof vscode.TabInputText || tab.input instanceof vscode.TabInputTextDiff,
+				(tab) =>
+					!closedTabs.has(tab) &&
+					(tab.input instanceof vscode.TabInputText || tab.input instanceof vscode.TabInputTextDiff),
 			),
 		);
 		if (!hasAnyTextTab && state.isPreviewLocked) {
@@ -724,11 +773,40 @@ const handleTabsChange = async (event: vscode.TabChangeEvent): Promise<void> => 
 		}
 
 		const closedTextCount =
-			event.opened?.length === 0
+			(event.opened?.length ?? 0) === 0
 				? (event.closed ?? []).filter(
 						(tab) => tab.input instanceof vscode.TabInputText || tab.input instanceof vscode.TabInputTextDiff,
 					).length
 				: 0;
+		const hasAnyMarkdownSource = vscode.window.tabGroups.all.some((group) =>
+			group.tabs.some((tab) => {
+				if (!isMarkdownSourceTab(tab) || closedTabs.has(tab)) {
+					return false;
+				}
+				// Some VS Code close events expose a different Tab object from the one
+				// still visible in tabGroups while the model is settling. In that case,
+				// treat the matching URI as closed; otherwise the last source is mistaken
+				// for an open Markdown tab and its preview is left behind.
+				return (
+					hasClosedMarkdownSourceTabInCurrentList ||
+					!closedMarkdownSourceUris.has(tab.input.uri.toString())
+				);
+			}),
+		);
+
+		// Close the preview when the last Markdown source closes, even if unrelated text tabs remain.
+		// The all-text-tabs-closed path below handles the case where no text tabs remain at all.
+		const lastMarkdownSourceClosed = closedMarkdownSource && !hasAnyMarkdownSource;
+		if (lastMarkdownSourceClosed) {
+			if (state.isPreviewLocked) {
+				await unlockPreviewGroupIfNeeded(state, fallbackEditor);
+			}
+			await closeMarkdownPreviewIfExists();
+			await closeAllEmptyNonPrimaryGroups();
+			// Closing the last source is a complete lifecycle boundary. Do not carry a
+			// same-URI preview suppression into a later, deliberate reopen of the file.
+			setSuppressAutoPreviewUri(undefined);
+		}
 
 		// When a "Close All" action empties only one group (side-by-side), close the remaining splits for the same document.
 		if (textGroupBecameEmpty && hasAnyTextTab && closedTextCount > 0 && (event.opened?.length ?? 0) === 0) {
@@ -736,12 +814,6 @@ const handleTabsChange = async (event: vscode.TabChangeEvent): Promise<void> => 
 				return;
 			}
 
-			const closedTextUris = new Set(
-				(event.closed ?? [])
-					.map((tab) => tab.input)
-					.filter((input): input is vscode.TabInputText => input instanceof vscode.TabInputText)
-					.map((input) => input.uri.toString()),
-			);
 			const remainingSplitsForClosedUris = vscode.window.tabGroups.all
 				.flatMap((group) => group.tabs)
 				.filter(
@@ -776,7 +848,7 @@ const handleTabsChange = async (event: vscode.TabChangeEvent): Promise<void> => 
 		}
 
 		// If all text tabs are closed (e.g. "Close All" with a single tab), never leave the markdown preview behind.
-		if (!hasAnyTextTab && closedTextCount > 0) {
+		if (!hasAnyTextTab && closedTextCount > 0 && !lastMarkdownSourceClosed) {
 			if (state.isPreviewLocked) {
 				await unlockPreviewGroupIfNeeded(state);
 			}
@@ -938,15 +1010,22 @@ const handleActiveEditorChangeImpl = async (editor: vscode.TextEditor | undefine
 	if (!editor) {
 		const state = getPreviewState();
 		if (
-			!state.isPreviewLocked &&
 			state.currentPreviewUri &&
 			settings.alwaysOpenInPrimaryEditor &&
 			settings.enableAutoPreview
 		) {
 			const previewEntry = findMarkdownPreviewTab();
 			const mdEditor = vscode.window.visibleTextEditors.find(isMarkdownEditor);
-			if (previewEntry && mdEditor) {
-				await lockPreviewGroupIfNeeded(settings.alwaysOpenInPrimaryEditor, mdEditor);
+			const markdownSourceTab = findTabByUri(state.currentPreviewUri);
+			if (previewEntry && mdEditor && markdownSourceTab) {
+				if (!state.isPreviewLocked) {
+					await lockPreviewGroupIfNeeded(settings.alwaysOpenInPrimaryEditor, mdEditor);
+				}
+				if (!vscode.window.activeTextEditor) {
+					// Focus the existing primary group instead of reopening its source document.
+					// A stale visible editor can otherwise resurrect a tab the user just closed.
+					await executeCommandSafely('workbench.action.focusFirstEditorGroup');
+				}
 			}
 		}
 		return;
@@ -1108,7 +1187,10 @@ const handleActiveEditorChangeImpl = async (editor: vscode.TextEditor | undefine
 	setLastActiveColumn(primaryEditor.viewColumn);
 
 	const updatedState = getPreviewState();
-	if (updatedState.suppressAutoPreviewUri?.toString() === primaryEditor.document.uri.toString()) {
+	if (
+		updatedState.suppressAutoPreviewUri?.toString() === primaryEditor.document.uri.toString() &&
+		updatedState.currentPreviewUri?.toString() === primaryEditor.document.uri.toString()
+	) {
 		return;
 	}
 
@@ -1182,18 +1264,37 @@ const handleActiveEditorChangeImpl = async (editor: vscode.TextEditor | undefine
 	}
 };
 
+const flushPendingTabsChange = async (): Promise<void> => {
+	while (pendingTabsChange !== undefined && !isAdjustingFocus) {
+		const pending = pendingTabsChange;
+		const closedTextUris = pendingClosedTextUris;
+		pendingTabsChange = undefined;
+		pendingClosedTextUris = undefined;
+		await handleTabsChange(pending);
+		const pendingEditorUri = pendingEditorChange?.value?.document.uri.toString();
+		if (pendingEditorUri && closedTextUris?.has(pendingEditorUri)) {
+			pendingEditorChange = undefined;
+		}
+	}
+};
+
 // Wrapper that queues editor-change events arriving while isAdjustingFocus is true,
 // then flushes them after the in-flight adjustment completes.  Without this, any file
 // selected during a focus/lock operation is silently dropped, leaving a stray editor
 // in Col2 that subsequent handlers cannot detect until the next user interaction.
 const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): Promise<void> => {
 	if (isAdjustingFocus) {
-		// Keep only the latest pending event; earlier ones are superseded.
-		pendingEditorChange = { value: editor };
+		// A delayed WebView/preview close can report `undefined` after the user has
+		// already selected another text editor. Do not let that stale event replace
+		// the pending editor, or the final Markdown selection will never open a preview.
+		if (editor || pendingEditorChange === undefined || pendingEditorChange.value === undefined) {
+			pendingEditorChange = { value: editor };
+		}
 		return;
 	}
 	pendingEditorChange = undefined;
 	await handleActiveEditorChangeImpl(editor);
+	await flushPendingTabsChange();
 
 	// Flush any event that was queued while isAdjustingFocus was true during the
 	// call above.  Loop in case a flush itself triggers another adjustment cycle.
@@ -1201,6 +1302,7 @@ const handleActiveEditorChange = async (editor: vscode.TextEditor | undefined): 
 		const pending = pendingEditorChange as { value: vscode.TextEditor | undefined };
 		pendingEditorChange = undefined;
 		await handleActiveEditorChangeImpl(pending.value);
+		await flushPendingTabsChange();
 	}
 };
 
@@ -1269,6 +1371,8 @@ export const __updateSplitModeStateFromVisibleEditorsForTest = updateSplitModeSt
 export const __resetInternalStateForTest = () => {
 	isAdjustingFocus = false;
 	pendingEditorChange = undefined;
+	pendingTabsChange = undefined;
+	pendingClosedTextUris = undefined;
 	trustWarningShown = false;
 	lastHandledKey = undefined;
 	lastHandledAt = 0;

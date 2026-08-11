@@ -7,6 +7,7 @@ A Visual Studio Code extension that automatically opens the Markdown preview whe
 - Automatically opens the Markdown preview when a Markdown file becomes active.
 - Keeps the code editor in the primary group while locking the preview to the side when enabled.
 - Closes the preview when a non-Markdown editor becomes active (configurable).
+- Closes the preview when the last Markdown source tab is closed, even if other text tabs remain.
 - Lets you choose which command is used to open the Markdown preview.
 - Workspace-scoped settings so each project can tune the behavior.
 
@@ -16,7 +17,7 @@ A Visual Studio Code extension that automatically opens the Markdown preview whe
 | --- | --- | --- |
 | `autoMdPreview.enableAutoPreview` | `true` | Automatically open Markdown preview when a Markdown file becomes active. |
 | `autoMdPreview.alwaysOpenInPrimaryEditor` | `true` | Keep the active text editor in the primary (first) group when opening previews. |
-| `autoMdPreview.closePreviewOnNonMarkdown` | `true` | Close Markdown preview when a non-Markdown editor becomes active. |
+| `autoMdPreview.closePreviewOnNonMarkdown` | `true` | Close Markdown preview when a non-Markdown editor becomes active. When `false`, keep the preview during a non-Markdown switch; in either case, close it when the last Markdown source tab is closed. |
 | `autoMdPreview.openPreviewCommand` | `"markdown.showPreviewToSide"` | VS Code command ID used to open the Markdown preview for the active document. |
 
 ## Configuration
