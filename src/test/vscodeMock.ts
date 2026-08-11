@@ -26,8 +26,9 @@ export const window = {
 
 export const workspace = {
 	isTrusted: true,
+	textDocuments: [] as any[],
 	getConfiguration: vi.fn(() => ({
-		get: (_key: string) => undefined,
+		get: (_key: string): unknown => undefined,
 	})),
 };
 
@@ -85,6 +86,7 @@ export const resetMocks = () => {
 	window.showWarningMessage.mockReset();
 	workspace.getConfiguration.mockReset();
 	workspace.isTrusted = true;
+	workspace.textDocuments = [];
 };
 
 export const setConfigValues = (values: Record<string, unknown>) => {

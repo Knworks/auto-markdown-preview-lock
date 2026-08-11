@@ -45,6 +45,140 @@ describe('Integration | Auto Markdown Preview Lock', () => {
 		assert.ok(vscode.window.tabGroups.all.length <= 2, 'preview close should not create extra groups');
 	});
 
+	it('closes the markdown source together with the preview after switching to non-markdown', async () => {
+		await setWorkspaceConfig('closePreviewOnNonMarkdown', false);
+		await openDocument('chapter.md', vscode.ViewColumn.One);
+		await waitFor(() => previewLabels().some((label) => label.includes('chapter.md')), 800);
+
+		await openDocument('example.py', vscode.ViewColumn.One);
+		await waitFor(() => vscode.window.activeTextEditor?.document.fileName.endsWith('example.py') === true, 800);
+		assert.strictEqual(findPreviewTabs().length, 1, 'preview should remain while a non-markdown editor is active');
+
+		const chapterTab = vscode.window.tabGroups.all
+			.flatMap((group) => group.tabs)
+			.find(
+				(tab) =>
+					tab.input instanceof vscode.TabInputText &&
+					tab.input.uri.fsPath.endsWith('chapter.md'),
+			);
+		assert.ok(chapterTab, 'chapter.md tab should be open before closing it');
+
+		await vscode.window.tabGroups.close(chapterTab, true);
+		await waitFor(
+			() =>
+				findPreviewTabs().length === 0 &&
+				!vscode.window.tabGroups.all
+					.flatMap((group) => group.tabs)
+					.some(
+						(tab) =>
+							tab.input instanceof vscode.TabInputText &&
+							tab.input.uri.fsPath.endsWith('chapter.md'),
+					),
+			800,
+		);
+		assert.ok(
+			vscode.window.tabGroups.all
+				.flatMap((group) => group.tabs)
+				.some(
+					(tab) =>
+						tab.input instanceof vscode.TabInputText &&
+						tab.input.uri.fsPath.endsWith('example.py'),
+				),
+			'example.py tab should remain open',
+		);
+	});
+
+	it('closes the markdown source together with its preview when it is the only text editor', async () => {
+		await setWorkspaceConfig('closePreviewOnNonMarkdown', true);
+		await openDocument('chapter.md', vscode.ViewColumn.One);
+		await waitFor(() => previewLabels().some((label) => label.includes('chapter.md')), 800);
+
+		const chapterTab = vscode.window.tabGroups.all
+			.flatMap((group) => group.tabs)
+			.find(
+				(tab) =>
+					tab.input instanceof vscode.TabInputText &&
+					tab.input.uri.fsPath.endsWith('chapter.md'),
+			);
+		assert.ok(chapterTab, 'chapter.md tab should be open before closing it');
+
+		await waitFor(
+			() => vscode.window.activeTextEditor?.document.fileName.endsWith('chapter.md') === true,
+			800,
+		);
+		await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+		await waitFor(
+			() =>
+				findPreviewTabs().length === 0 &&
+				!vscode.window.tabGroups.all
+					.flatMap((group) => group.tabs)
+					.some(
+						(tab) =>
+							tab.input instanceof vscode.TabInputText &&
+							tab.input.uri.fsPath.endsWith('chapter.md'),
+					),
+			800,
+		);
+		await sleep(500);
+		assert.strictEqual(findPreviewTabs().length, 0, 'preview should stay closed after the source close settles');
+		assert.ok(
+			!vscode.window.tabGroups.all
+				.flatMap((group) => group.tabs)
+				.some(
+					(tab) =>
+						tab.input instanceof vscode.TabInputText &&
+						tab.input.uri.fsPath.endsWith('chapter.md'),
+				),
+			'chapter.md should stay closed after the source close settles',
+		);
+	});
+
+	it('closes the markdown source together with its preview when closePreviewOnNonMarkdown is false and it is the only text editor', async () => {
+		await setWorkspaceConfig('closePreviewOnNonMarkdown', false);
+		await openDocument('chapter.md', vscode.ViewColumn.One);
+		await waitFor(() => previewLabels().some((label) => label.includes('chapter.md')), 800);
+		assert.strictEqual(findPreviewTabs().length, 1, 'exactly one preview should be open before closing the source');
+
+		const chapterTab = vscode.window.tabGroups.all
+			.flatMap((group) => group.tabs)
+			.find(
+				(tab) =>
+					tab.input instanceof vscode.TabInputText &&
+					tab.input.uri.fsPath.endsWith('chapter.md'),
+			);
+		assert.ok(chapterTab, 'chapter.md tab should be open before closing it');
+
+		await waitFor(
+			() => vscode.window.activeTextEditor?.document.fileName.endsWith('chapter.md') === true,
+			800,
+		);
+		await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+		await waitFor(
+			() =>
+				findPreviewTabs().length === 0 &&
+				!vscode.window.tabGroups.all
+					.flatMap((group) => group.tabs)
+					.some(
+						(tab) =>
+							tab.input instanceof vscode.TabInputText &&
+							tab.input.uri.fsPath.endsWith('chapter.md'),
+					),
+			800,
+		);
+		await sleep(500);
+		assert.strictEqual(findPreviewTabs().length, 0, 'preview should stay closed after the source close settles');
+		assert.ok(
+			!vscode.window.tabGroups.all
+				.flatMap((group) => group.tabs)
+				.some(
+					(tab) =>
+						tab.input instanceof vscode.TabInputText &&
+						tab.input.uri.fsPath.endsWith('chapter.md'),
+				),
+			'chapter.md should stay closed after the source close settles',
+		);
+	});
+
 	it('differs when alwaysOpenInPrimaryEditor is disabled with right-side focus', async () => {
 		// Lock ON (default): active editor should move back to the primary group.
 		await setWorkspaceConfig('alwaysOpenInPrimaryEditor', true);
@@ -100,13 +234,14 @@ describe('Integration | Auto Markdown Preview Lock', () => {
 	});
 
 	it('does not create duplicate previews during rapid md→md→md switching', async () => {
+		// Start from a ready preview. Initial WebView creation is covered separately above;
+		// this case verifies that two user switches while a preview already exists stay deduplicated.
 		await openDocument('one.md', vscode.ViewColumn.One);
-		await sleep(100);
+		await waitFor(() => previewLabels().some((label) => label.includes('one.md')), 1200);
 		await openDocument('two.md', vscode.ViewColumn.One);
-		await sleep(100);
 		await openDocument('one.md', vscode.ViewColumn.One);
 
-		await waitFor(() => previewLabels().some((l) => l.includes('one.md')), 1200);
+		await waitFor(() => previewLabels().some((label) => label.includes('one.md')), 1200);
 		assert.strictEqual(findPreviewTabs().length, 1, 'only one preview tab should exist after rapid md→md→md switching');
 		assert.ok(!hasTextEditorInColumn(vscode.ViewColumn.Two), 'Col2 should not have a stray text editor after rapid md switching');
 	});
@@ -123,6 +258,7 @@ describe('Integration | Auto Markdown Preview Lock', () => {
 
 		await waitFor(() => previewLabels().some((l) => l.includes('two.md')), 1200);
 		assert.strictEqual(findPreviewTabs().length, 1, 'only one preview tab should exist after rapid md→non-md→md');
+		await waitFor(() => vscode.window.activeTextEditor?.viewColumn === vscode.ViewColumn.One, 800);
 		assert.strictEqual(
 			vscode.window.activeTextEditor?.viewColumn,
 			vscode.ViewColumn.One,
@@ -137,6 +273,7 @@ describe('Integration | Auto Markdown Preview Lock', () => {
 		await openDocument('one.md', vscode.ViewColumn.One);
 
 		await waitFor(() => findPreviewTabs().length === 1, 800);
+		await waitFor(() => vscode.window.activeTextEditor?.viewColumn === vscode.ViewColumn.One, 800);
 		assert.ok(previewLabels().some((l) => l.includes('one.md')), 'preview should open for one.md when switching from non-markdown');
 		assert.strictEqual(
 			vscode.window.activeTextEditor?.viewColumn,

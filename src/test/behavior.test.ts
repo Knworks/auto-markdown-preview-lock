@@ -22,6 +22,7 @@ import {
 	resetAllState,
 	setPreviewLocked,
 	setCurrentPreviewUri,
+	setSuppressAutoPreviewUri,
 	getPreviewState,
 	setLastActiveColumn,
 	setLastActiveKind,
@@ -179,6 +180,27 @@ describe('handleActiveEditorChange', () => {
 		__mocks.commands.executeCommand.mockClear();
 		await __handleActiveEditorChangeForTest(editor);
 		expect(__mocks.commands.executeCommand.mock.calls.map((c) => c[0])).toContain('markdown.showPreviewToSide');
+	});
+
+	it('reopens preview when a previously closed markdown source is opened again', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: true,
+			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: 'markdown.showPreviewToSide',
+		});
+		const editor = createTextEditor('/a.md', 'markdown', ViewColumn.One);
+		setSuppressAutoPreviewUri(Uri.file('/a.md'));
+		__mocks.tabGroups.all = [
+			{
+				tabs: [{ input: new TabInputText(Uri.file('/a.md')) }],
+				viewColumn: ViewColumn.One,
+			},
+		] as any;
+
+		await __handleActiveEditorChangeForTest(editor);
+
+		expect(__mocks.commands.executeCommand.mock.calls.map((call) => call[0])).toContain('markdown.showPreviewToSide');
 	});
 
 	it('closes the preview-created empty group when the user closes the markdown preview tab', async () => {
@@ -474,11 +496,174 @@ describe('handleActiveEditorChange', () => {
 
 			await __handleTabsChangeForTest({
 				closed: [{ input: new TabInputText(Uri.file('/a.md')) }],
-				opened: [],
 				changed: [],
 			} as any);
 
 			expect(__mocks.tabGroups.close).toHaveBeenCalledTimes(1);
+		});
+
+		it('closes markdown preview when the last markdown source closes while a non-markdown tab remains', async () => {
+			setConfigValues({
+				enableAutoPreview: true,
+				closePreviewOnNonMarkdown: false,
+				alwaysOpenInPrimaryEditor: true,
+				openPreviewCommand: 'markdown.showPreviewToSide',
+			});
+			__mocks.tabGroups.all = [
+				{
+					tabs: [{ input: new TabInputText(Uri.file('/example.py')) }],
+					viewColumn: ViewColumn.One,
+				},
+				{
+					tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
+					viewColumn: ViewColumn.Two,
+				},
+			] as any;
+
+			await __handleTabsChangeForTest({
+				closed: [{ input: new TabInputText(Uri.file('/a.md')) }],
+				changed: [],
+			} as any);
+
+			expect(__mocks.tabGroups.close).toHaveBeenCalledTimes(1);
+		});
+
+		it('closes markdown preview when the only markdown source is reported closed before the tab list settles', async () => {
+			setConfigValues({
+				enableAutoPreview: true,
+				closePreviewOnNonMarkdown: false,
+				alwaysOpenInPrimaryEditor: true,
+				openPreviewCommand: 'markdown.showPreviewToSide',
+			});
+			const chapterUri = Uri.file('/chapter.md');
+			const chapterTab = { input: new TabInputText(chapterUri) } as any;
+			__mocks.tabGroups.all = [
+				{
+					tabs: [chapterTab],
+					viewColumn: ViewColumn.One,
+				},
+				{
+					tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
+					viewColumn: ViewColumn.Two,
+				},
+			] as any;
+
+			await __handleTabsChangeForTest({
+				closed: [chapterTab],
+				changed: [],
+			} as any);
+
+			expect(__mocks.tabGroups.close).toHaveBeenCalledTimes(1);
+		});
+
+		it('closes markdown preview when the close event uses a different tab instance from the tab list', async () => {
+			setConfigValues({
+				enableAutoPreview: true,
+				closePreviewOnNonMarkdown: false,
+				alwaysOpenInPrimaryEditor: true,
+				openPreviewCommand: 'markdown.showPreviewToSide',
+			});
+			const chapterUri = Uri.file('/chapter.md');
+			setSuppressAutoPreviewUri(chapterUri);
+			__mocks.tabGroups.all = [
+				{
+					tabs: [{ input: new TabInputText(chapterUri) }],
+					viewColumn: ViewColumn.One,
+				},
+				{
+					tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
+					viewColumn: ViewColumn.Two,
+				},
+			] as any;
+
+			await __handleTabsChangeForTest({
+				closed: [{ input: new TabInputText(chapterUri) }],
+				changed: [],
+			} as any);
+
+			expect(__mocks.tabGroups.close).toHaveBeenCalledTimes(1);
+			expect(getPreviewState().suppressAutoPreviewUri).toBeUndefined();
+		});
+
+		it('does not reopen the closed markdown source while unlocking the preview group', async () => {
+			setConfigValues({
+				enableAutoPreview: true,
+				closePreviewOnNonMarkdown: false,
+				alwaysOpenInPrimaryEditor: true,
+				openPreviewCommand: 'markdown.showPreviewToSide',
+			});
+			setPreviewLocked(true);
+			setLockedPreviewGroupViewColumn(ViewColumn.Two as any);
+			const chapterUri = Uri.file('/chapter.md');
+			const previewTab = { input: new TabInputWebview('vscode.markdown.preview.editor') } as any;
+			__mocks.tabGroups.all = [
+				{
+					tabs: [{ input: new TabInputText(Uri.file('/example.py')) }],
+					viewColumn: ViewColumn.One,
+				},
+				{ tabs: [previewTab], viewColumn: ViewColumn.Two },
+			] as any;
+			__mocks.window.activeTextEditor = createTextEditor('/chapter.md', 'markdown', ViewColumn.One);
+			__mocks.tabGroups.close.mockImplementation(async (tabs: any) => {
+				const list = Array.isArray(tabs) ? tabs : [tabs];
+				for (const tab of list) {
+					for (const group of __mocks.tabGroups.all) {
+						group.tabs = (group.tabs ?? []).filter((candidate: any) => candidate !== tab);
+					}
+				}
+				return undefined as any;
+			});
+			__mocks.window.showTextDocument.mockImplementation(async (document: any, options?: any) => {
+				if (document.uri.toString() === chapterUri.toString()) {
+					const primaryGroup = __mocks.tabGroups.all.find((group) => group.viewColumn === ViewColumn.One);
+					primaryGroup.tabs.push({ input: new TabInputText(chapterUri) });
+				}
+				return { document, viewColumn: options?.viewColumn ?? ViewColumn.One } as any;
+			});
+
+			await __handleTabsChangeForTest({
+				closed: [{ input: new TabInputText(chapterUri) }],
+				opened: [],
+				changed: [],
+			} as any);
+
+			expect(
+				__mocks.tabGroups.all
+					.flatMap((group) => group.tabs)
+					.some(
+						(tab) =>
+							tab.input instanceof TabInputText && tab.input.uri.toString() === chapterUri.toString(),
+					),
+			).toBe(false);
+		});
+
+		it('keeps markdown preview when another markdown source remains open', async () => {
+			setConfigValues({
+				enableAutoPreview: true,
+				closePreviewOnNonMarkdown: false,
+				alwaysOpenInPrimaryEditor: true,
+				openPreviewCommand: 'markdown.showPreviewToSide',
+			});
+			__mocks.tabGroups.all = [
+				{
+					tabs: [
+						{ input: new TabInputText(Uri.file('/b.md')) },
+						{ input: new TabInputText(Uri.file('/example.py')) },
+					],
+					viewColumn: ViewColumn.One,
+				},
+				{
+					tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
+					viewColumn: ViewColumn.Two,
+				},
+			] as any;
+
+			await __handleTabsChangeForTest({
+				closed: [{ input: new TabInputText(Uri.file('/a.md')) }],
+				changed: [],
+			} as any);
+
+			expect(__mocks.tabGroups.close).not.toHaveBeenCalled();
 		});
 
 		it('does not treat programmatic group consolidation as a user close-all', async () => {
@@ -1010,6 +1195,89 @@ describe('handleActiveEditorChange', () => {
 		expect(__mocks.commands.executeCommand).not.toHaveBeenCalled();
 	});
 
+	it('focuses the primary editor group when the preview becomes active after a delayed open', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: true,
+			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: 'markdown.showPreviewToSide',
+		});
+		const markdownEditor = createTextEditor('/a.md', 'markdown', ViewColumn.One);
+		setCurrentPreviewUri(Uri.file('/a.md'));
+		setPreviewLocked(true);
+		setLockedPreviewGroupViewColumn(ViewColumn.Two as any);
+		__mocks.window.visibleTextEditors = [markdownEditor];
+		__mocks.tabGroups.all = [
+			{
+				tabs: [{ input: new TabInputText(Uri.file('/a.md')) }],
+				viewColumn: ViewColumn.One,
+			},
+			{
+				tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
+				viewColumn: ViewColumn.Two,
+			},
+		] as any;
+
+		await __handleActiveEditorChangeForTest(undefined);
+
+		expect(__mocks.commands.executeCommand).toHaveBeenCalledWith('workbench.action.focusFirstEditorGroup');
+		expect(__mocks.window.showTextDocument).not.toHaveBeenCalled();
+	});
+
+	it('does not reopen a markdown source while a delayed close event still exposes its tab', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: false,
+			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: 'markdown.showPreviewToSide',
+		});
+		const markdownEditor = createTextEditor('/a.md', 'markdown', ViewColumn.One);
+		setCurrentPreviewUri(Uri.file('/a.md'));
+		setPreviewLocked(true);
+		setLockedPreviewGroupViewColumn(ViewColumn.Two as any);
+		__mocks.window.visibleTextEditors = [markdownEditor];
+		__mocks.tabGroups.all = [
+			{
+				tabs: [{ input: new TabInputText(Uri.file('/a.md')) }],
+				viewColumn: ViewColumn.One,
+			},
+			{
+				tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
+				viewColumn: ViewColumn.Two,
+			},
+		] as any;
+
+		await __handleActiveEditorChangeForTest(undefined);
+
+		expect(__mocks.window.showTextDocument).not.toHaveBeenCalled();
+	});
+
+	it('does not restore a Markdown source after its tab has been closed', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: true,
+			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: 'markdown.showPreviewToSide',
+		});
+		const markdownEditor = createTextEditor('/a.md', 'markdown', ViewColumn.One);
+		setCurrentPreviewUri(Uri.file('/a.md'));
+		setPreviewLocked(true);
+		setLockedPreviewGroupViewColumn(ViewColumn.Two as any);
+		__mocks.window.visibleTextEditors = [markdownEditor];
+		// The source tab has already been removed, while the delayed active-editor event
+		// still exposes the old Markdown editor through visibleTextEditors.
+		__mocks.tabGroups.all = [
+			{
+				tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
+				viewColumn: ViewColumn.Two,
+			},
+		] as any;
+
+		await __handleActiveEditorChangeForTest(undefined);
+
+		expect(__mocks.window.showTextDocument).not.toHaveBeenCalled();
+	});
+
 	it('does not lock when preview tab is missing', async () => {
 		setConfigValues({
 			enableAutoPreview: true,
@@ -1085,6 +1353,10 @@ describe('handleActiveEditorChange', () => {
 		// lock path
 		__mocks.window.activeTextEditor = createTextEditor('/active.ts', 'typescript', ViewColumn.One);
 		__mocks.tabGroups.all = [
+			{
+				tabs: [{ input: new TabInputText(Uri.file('/i.md')) }],
+				viewColumn: ViewColumn.One,
+			},
 			{
 				tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
 				viewColumn: ViewColumn.Two,

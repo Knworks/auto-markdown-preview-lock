@@ -1,4 +1,3 @@
-import * as path from 'path';
 import * as vscode from 'vscode';
 
 export const workspaceFile = (fileName: string): vscode.Uri => {
@@ -54,6 +53,16 @@ export const waitFor = async (predicate: () => boolean, timeoutMs = 500, interva
 export const resetWorkspaceView = async (): Promise<void> => {
 	await vscode.commands.executeCommand('workbench.action.closeAllEditors');
 	await vscode.commands.executeCommand('workbench.action.joinAllGroups');
+	await waitFor(
+		() =>
+			vscode.window.tabGroups.all.length <= 1 &&
+			vscode.window.tabGroups.all.every((group) => group.tabs.length === 0) &&
+			vscode.window.activeTextEditor === undefined,
+		3000,
+	);
+	// Allow queued focus/group events and multiple 300ms extension command timeouts to settle
+	// before the next test opens an editor.
+	await sleep(1200);
 };
 
 export const setWorkspaceConfig = async (key: string, value: unknown): Promise<void> => {

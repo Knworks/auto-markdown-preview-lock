@@ -1,5 +1,11 @@
 # Change Log
 
+## [1.0.6]
+
+Fixed
+
+- Close the Markdown preview when the last Markdown source tab is closed, even if other text tabs remain, without reopening the closed source tab.
+
 ## [1.0.5]
 
 Fixed
