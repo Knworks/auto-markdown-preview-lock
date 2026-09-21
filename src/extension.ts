@@ -20,6 +20,8 @@ import {
 
 const MARKDOWN_LANGUAGE_ID = 'markdown';
 const COMMAND_TIMEOUT_MS = 300;
+const ACTIVE_TAB_SETTLE_TIMEOUT_MS = 500;
+const ACTIVE_TAB_SETTLE_INTERVAL_MS = 20;
 let isAdjustingFocus = false;
 let trustWarningShown = false;
 let lastHandledKey: string | undefined;
@@ -410,6 +412,41 @@ const isMarkdownPreviewTab = (tab: vscode.Tab): boolean => {
 	}
 	const viewType = tab.input.viewType.toLowerCase();
 	return viewType.includes('markdown') && viewType.includes('preview');
+};
+
+const hasOtherWebviewInActiveGroup = (activeTab: vscode.Tab | undefined): boolean => {
+	const activeGroup = vscode.window.tabGroups.activeTabGroup;
+	return (
+		activeGroup?.tabs?.some(
+			(tab) =>
+				tab !== activeTab &&
+				tab.input instanceof vscode.TabInputWebview &&
+				!isMarkdownPreviewTab(tab),
+		) ?? false
+	);
+};
+
+const waitForMarkdownPreviewActivation = async (activeTab: vscode.Tab): Promise<boolean> => {
+	const activeGroup = vscode.window.tabGroups.activeTabGroup;
+	if (!activeGroup?.tabs) {
+		return true;
+	}
+
+	const deadline = Date.now() + ACTIVE_TAB_SETTLE_TIMEOUT_MS;
+	while (true) {
+		const currentActiveTab = vscode.window.tabGroups.activeTabGroup?.activeTab;
+		if (
+			vscode.window.activeTextEditor ||
+			currentActiveTab !== activeTab ||
+			hasOtherWebviewInActiveGroup(currentActiveTab)
+		) {
+			return false;
+		}
+		if (Date.now() >= deadline) {
+			return true;
+		}
+		await new Promise<void>((resolve) => setTimeout(resolve, ACTIVE_TAB_SETTLE_INTERVAL_MS));
+	}
 };
 
 const findMarkdownPreviewTab = (): { tab: vscode.Tab; group: vscode.TabGroup } | undefined => {
@@ -1008,6 +1045,13 @@ const handleActiveEditorChangeImpl = async (editor: vscode.TextEditor | undefine
 	// and returns without locking.  When the webview later fires this event we opportunistically
 	// lock so that the next Explorer click lands in Col1 instead of the unlocked Col2.
 	if (!editor) {
+		if (!activeTab || !isMarkdownPreviewTab(activeTab)) {
+			return;
+		}
+		if (!(await waitForMarkdownPreviewActivation(activeTab))) {
+			return;
+		}
+
 		const state = getPreviewState();
 		if (
 			state.currentPreviewUri &&
@@ -1021,7 +1065,14 @@ const handleActiveEditorChangeImpl = async (editor: vscode.TextEditor | undefine
 				if (!state.isPreviewLocked) {
 					await lockPreviewGroupIfNeeded(settings.alwaysOpenInPrimaryEditor, mdEditor);
 				}
-				if (!vscode.window.activeTextEditor) {
+				const currentActiveTab = vscode.window.tabGroups.activeTabGroup?.activeTab;
+				if (
+					!vscode.window.activeTextEditor &&
+					currentActiveTab &&
+					isMarkdownPreviewTab(currentActiveTab) &&
+					currentActiveTab === activeTab &&
+					!hasOtherWebviewInActiveGroup(currentActiveTab)
+				) {
 					// Focus the existing primary group instead of reopening its source document.
 					// A stale visible editor can otherwise resurrect a tab the user just closed.
 					await executeCommandSafely('workbench.action.focusFirstEditorGroup');
