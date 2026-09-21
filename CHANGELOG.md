@@ -1,5 +1,11 @@
 # Change Log
 
+## [1.0.7]
+
+Fixed
+
+- Keep the graphical Settings editor focused when a Markdown preview is open with `autoMdPreview.alwaysOpenInPrimaryEditor` enabled.
+
 ## [1.0.6]
 
 Fixed
