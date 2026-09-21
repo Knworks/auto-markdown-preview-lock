@@ -30,6 +30,46 @@ describe('Integration | Auto Markdown Preview Lock', () => {
 		await setWorkspaceConfig('closePreviewOnNonMarkdown', true);
 	});
 
+	it('keeps Settings focused while the markdown preview group is active', async () => {
+		await openDocument('one.md', vscode.ViewColumn.One);
+		await waitFor(() => findPreviewTabs().length === 1, 1000);
+
+		await vscode.commands.executeCommand('workbench.action.focusSecondEditorGroup');
+		await waitFor(
+			() => vscode.window.tabGroups.activeTabGroup?.viewColumn === vscode.ViewColumn.Two,
+			1000,
+		);
+		await vscode.commands.executeCommand('workbench.action.openSettings');
+		await waitFor(
+			() =>
+				vscode.window.tabGroups.all.some((group) =>
+					group.tabs.some((tab) => tab.label === 'Settings'),
+				),
+			1500,
+		);
+		await sleep(500);
+
+		const settingsEntry = vscode.window.tabGroups.all
+			.flatMap((group) => group.tabs.map((tab) => ({ group, tab })))
+			.find(({ tab }) => tab.label === 'Settings');
+		assert.ok(settingsEntry, 'Settings tab should be open');
+		assert.strictEqual(
+			settingsEntry.group.viewColumn,
+			vscode.ViewColumn.Two,
+			'Settings should remain in the preview group',
+		);
+		assert.strictEqual(
+			vscode.window.tabGroups.activeTabGroup?.viewColumn,
+			vscode.ViewColumn.Two,
+			'Settings should remain the active editor group',
+		);
+		assert.strictEqual(
+			vscode.window.tabGroups.activeTabGroup?.activeTab?.label,
+			'Settings',
+			'Settings should remain the active tab',
+		);
+	});
+
 	it('follows markdown switches and closes on non-markdown', async () => {
 		await openDocument('one.md', vscode.ViewColumn.One);
 		await waitFor(() => findPreviewTabs().length === 1, 800);

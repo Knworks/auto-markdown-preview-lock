@@ -1217,11 +1217,46 @@ describe('handleActiveEditorChange', () => {
 				viewColumn: ViewColumn.Two,
 			},
 		] as any;
+		__mocks.tabGroups.activeTabGroup = {
+			activeTab: { input: new TabInputWebview('vscode.markdown.preview.editor') },
+			viewColumn: ViewColumn.Two,
+		} as any;
 
 		await __handleActiveEditorChangeForTest(undefined);
 
 		expect(__mocks.commands.executeCommand).toHaveBeenCalledWith('workbench.action.focusFirstEditorGroup');
 		expect(__mocks.window.showTextDocument).not.toHaveBeenCalled();
+	});
+
+	it('does not steal focus from the Settings webview while a markdown preview is open', async () => {
+		setConfigValues({
+			enableAutoPreview: true,
+			closePreviewOnNonMarkdown: true,
+			alwaysOpenInPrimaryEditor: true,
+			openPreviewCommand: 'markdown.showPreviewToSide',
+		});
+		const markdownEditor = createTextEditor('/a.md', 'markdown', ViewColumn.One);
+		setCurrentPreviewUri(Uri.file('/a.md'));
+		setPreviewLocked(true);
+		__mocks.window.visibleTextEditors = [markdownEditor];
+		__mocks.tabGroups.all = [
+			{
+				tabs: [{ input: new TabInputText(Uri.file('/a.md')) }],
+				viewColumn: ViewColumn.One,
+			},
+			{
+				tabs: [{ input: new TabInputWebview('vscode.markdown.preview.editor') }],
+				viewColumn: ViewColumn.Two,
+			},
+		] as any;
+		__mocks.tabGroups.activeTabGroup = {
+			activeTab: { input: new TabInputWebview('workbench.editors.settings') },
+			viewColumn: ViewColumn.Two,
+		} as any;
+
+		await __handleActiveEditorChangeForTest(undefined);
+
+		expect(__mocks.commands.executeCommand).not.toHaveBeenCalled();
 	});
 
 	it('does not reopen a markdown source while a delayed close event still exposes its tab', async () => {
